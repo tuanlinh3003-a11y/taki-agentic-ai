@@ -26,9 +26,17 @@ export function exportWorkspace(bizId: string) {
     agents: q.all<Row>("SELECT agent_key, autonomy, enabled, token_budget_day, limits FROM agent_config WHERE biz_id = ? ORDER BY agent_key", bizId)
       .map((a) => ({ agent: a.agent_key, autonomy: a.autonomy, enabled: !!a.enabled, tokenBudgetDay: a.token_budget_day, model: a.limits?.model ?? null })),
     adTemplates: q.all<Row>("SELECT name, platform, definition FROM ad_template WHERE biz_id = ? ORDER BY name", bizId),
-    automations: q.all<Row>("SELECT type, name, config, status FROM automation WHERE biz_id = ? ORDER BY created_at", bizId)
+    automations: q.all<Row>("SELECT type, name, config, status, rule_id FROM automation WHERE biz_id = ? ORDER BY created_at", bizId)
       .filter((a) => !(a.type === "auto_run" && a.config?.mode === "schedule")) // bound to specific ads of this machine
-      .map((a) => ({ type: a.type, name: a.name, status: a.status, config: Object.fromEntries(Object.entries(a.config ?? {}).filter(([k]) => !LOCAL_REFS.includes(k))) })),
+      .map((a) => {
+        // Rule-backed flows keep their exact rule definition (no recompilation → identical behaviour).
+        const r = a.rule_id ? q.get<Row>("SELECT description, definition, mode, priority FROM rule WHERE id = ?", a.rule_id) : undefined;
+        const def = r ? { ...r.definition, scope: { ...r.definition.scope, filters: (r.definition.scope?.filters ?? []).filter((f: Row) => f.field !== "account") } } : undefined;
+        return {
+          type: a.type, name: a.name, status: a.status, config: Object.fromEntries(Object.entries(a.config ?? {}).filter(([k]) => !LOCAL_REFS.includes(k))),
+          ...(r ? { rule: { description: r.description, definition: def, mode: r.mode, priority: r.priority } } : {}),
+        };
+      }),
     knowledge: q.all<Row>("SELECT title, kind, source, tags, body FROM knowledge_doc WHERE biz_id = ? ORDER BY created_at", bizId).filter((d) => !SEED_SOURCES.test(d.source)),
     schedules: q.all<Row>("SELECT name, every_minutes, enabled FROM schedule WHERE biz_id = ? ORDER BY name", bizId),
   };
@@ -64,7 +72,16 @@ export async function applyWorkspace(bizId: string, file = WORKSPACE_FILE) {
   }
   ensureAutomations(bizId); // seed rules → automation rows, so names match below
   for (const a of s.automations ?? []) {
-    const cur = q.get<Row>("SELECT id, status FROM automation WHERE biz_id = ? AND name = ?", bizId, a.name);
+    const cur = q.get<Row>("SELECT id, status, rule_id FROM automation WHERE biz_id = ? AND name = ?", bizId, a.name);
+    if (a.rule) {
+      const ruleStatus = a.status === "paused" ? "paused" : "active";
+      let ruleId = cur?.rule_id as string | undefined;
+      if (ruleId) update("rule", ruleId, { name: a.name, description: a.rule.description, definition: a.rule.definition, mode: a.rule.mode, priority: a.rule.priority, status: ruleStatus });
+      else ruleId = insert("rule", { biz_id: bizId, name: a.name, description: a.rule.description, definition: a.rule.definition, mode: a.rule.mode, status: ruleStatus, version: 1, priority: a.rule.priority }).id;
+      if (cur) update("automation", cur.id, { type: a.type, config: a.config, status: a.status, rule_id: ruleId });
+      else insert("automation", { biz_id: bizId, type: a.type, name: a.name, config: a.config, status: a.status, rule_id: ruleId, run_count: 0 });
+      continue;
+    }
     try {
       const saved: Row = await saveAutomation(bizId, { id: cur?.id, type: a.type, name: a.name, config: a.config }, "workspace");
       if (a.status === "paused" && saved.status !== "paused") {

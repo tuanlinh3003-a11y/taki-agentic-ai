@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": "2026-09-30T12:44:06.059Z",
+  "exportedAt": "2026-09-30T12:45:18.812Z",
   "biz": {
     "name": "TAKI Group",
     "timezone": "Asia/Ho_Chi_Minh",
@@ -520,6 +520,61 @@
         "notify": true,
         "everyMinutes": 15,
         "live": false
+      },
+      "rule": {
+        "description": "Chi > 1,5 triệu trong ngày mà 0 kết quả",
+        "definition": {
+          "scope": {
+            "platform": "any",
+            "level": "ad",
+            "filters": []
+          },
+          "trigger": {
+            "type": "schedule",
+            "every": "15m"
+          },
+          "conditions": {
+            "all": [
+              {
+                "metric": "spend",
+                "window": "today",
+                "op": ">",
+                "value": 1500000
+              },
+              {
+                "metric": "results",
+                "window": "today",
+                "op": "==",
+                "value": 0
+              }
+            ]
+          },
+          "minData": {
+            "spend": 1000000,
+            "impressions": 1000
+          },
+          "actions": [
+            {
+              "type": "pause_ad"
+            },
+            {
+              "type": "notify",
+              "channel": "telegram"
+            }
+          ],
+          "limits": {
+            "cooldownHours": 24,
+            "maxActionsPerRun": 10,
+            "maxActionsPerDay": 30
+          },
+          "budgetGuard": {
+            "maxStepPct": 20,
+            "maxDailyBudgetPerEntity": 20000000,
+            "maxTotalDailyBudget": 80000000
+          }
+        },
+        "mode": "dry_run",
+        "priority": 200
       }
     },
     {
@@ -547,6 +602,53 @@
         "maxBudget": 15000000,
         "cooldownHours": 24,
         "live": false
+      },
+      "rule": {
+        "description": "CPA thấp hơn mục tiêu 3 ngày liên tiếp → +20%",
+        "definition": {
+          "scope": {
+            "platform": "any",
+            "level": "ad",
+            "filters": []
+          },
+          "trigger": {
+            "type": "schedule",
+            "every": "1d"
+          },
+          "conditions": {
+            "all": [
+              {
+                "metric": "cpa",
+                "window": "today",
+                "op": "<",
+                "ref": "target_cpa",
+                "factor": 0.9,
+                "consecutiveDays": 3
+              }
+            ]
+          },
+          "minData": {
+            "spend": 500000
+          },
+          "actions": [
+            {
+              "type": "budget_change",
+              "pct": 20
+            }
+          ],
+          "limits": {
+            "cooldownHours": 24,
+            "maxActionsPerRun": 3,
+            "maxActionsPerDay": 5
+          },
+          "budgetGuard": {
+            "maxStepPct": 20,
+            "maxDailyBudgetPerEntity": 15000000,
+            "maxTotalDailyBudget": 80000000
+          }
+        },
+        "mode": "dry_run",
+        "priority": 100
       }
     },
     {
@@ -573,6 +675,56 @@
         "maxBudget": 20000000,
         "cooldownHours": 24,
         "live": false
+      },
+      "rule": {
+        "description": "CPA 3 ngày > 1,5 lần mục tiêu → −20%",
+        "definition": {
+          "scope": {
+            "platform": "any",
+            "level": "ad",
+            "filters": []
+          },
+          "trigger": {
+            "type": "schedule",
+            "every": "1d"
+          },
+          "conditions": {
+            "all": [
+              {
+                "metric": "cpa",
+                "window": "3d",
+                "op": ">",
+                "ref": "target_cpa",
+                "factor": 1.5
+              }
+            ]
+          },
+          "minData": {
+            "spend": 1000000
+          },
+          "actions": [
+            {
+              "type": "budget_change",
+              "pct": -20
+            },
+            {
+              "type": "notify",
+              "channel": "telegram"
+            }
+          ],
+          "limits": {
+            "cooldownHours": 24,
+            "maxActionsPerRun": 5,
+            "maxActionsPerDay": 10
+          },
+          "budgetGuard": {
+            "maxStepPct": 20,
+            "maxDailyBudgetPerEntity": 20000000,
+            "maxTotalDailyBudget": 80000000
+          }
+        },
+        "mode": "dry_run",
+        "priority": 150
       }
     }
   ],
