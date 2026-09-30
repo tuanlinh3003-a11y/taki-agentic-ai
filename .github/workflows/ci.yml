@@ -1,0 +1,40 @@
+name: Kiểm tra toàn vẹn
+
+# Mỗi lần đẩy code: cài lại từ đầu theo lockfile, typecheck, test, build giao diện, chạy thử API
+# trên database trắng — đảm bảo máy khác clone về chạy giống hệt.
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm test
+      - run: pnpm run build:web
+      - name: Chạy thử API trên database trắng
+        env:
+          SEED_MODE: blank
+          DB_PATH: /tmp/ci/dotaka.db
+          API_PORT: "8799"
+          LLM_PROVIDER: sandbox
+        run: |
+          mkdir -p /tmp/ci
+          npx tsx apps/api/src/server.ts > /tmp/ci/api.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf localhost:8799/v1/system >/dev/null && break; sleep 1; done
+          for p in system overview agents skills orchestra platforms automations zalo; do
+            curl -sf "localhost:8799/v1/$p" > /dev/null || { echo "✗ /v1/$p"; tail -50 /tmp/ci/api.log; exit 1; }
+            echo "✓ /v1/$p"
+          done
+          # Skill đóng gói phải nạp đủ (40 skill + 8 nhân viên + DNA)
+          n=$(curl -s localhost:8799/v1/skills | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).skills.length))")
+          echo "Skill đã nạp: $n"; test "$n" -ge 48
+          curl -sf localhost:8799/ | grep -q "TAKI Agentic AI"

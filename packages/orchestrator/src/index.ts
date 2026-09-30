@@ -1,0 +1,93 @@
+import { audit, emit, insert, q, update, type Row } from "@dotaka/db";
+import { sendTelegram } from "@dotaka/connectors";
+import { handleIncoming, runFollowUps } from "@dotaka/chat-engine";
+import { formatVnd, nowIso } from "@dotaka/shared";
+import { runAllRules, executeAction, publishCandidate, startAdsReport, syncAdMetrics, latestDaily, sumMetrics, today } from "./ads.ts";
+import { expireApprovals } from "./approvals.ts";
+import { learnDaily } from "./learning.ts";
+import { runDraftUpload, runVideoJob } from "./creative.ts";
+import { runPublishJob, schedulePublish, snapshotPost } from "./publishing.ts";
+import { startScheduler, startWorkers, type Handler } from "./queue.ts";
+import { runTask } from "./runtime.ts";
+import { connectionHealthAll, registerTelegramFromDb } from "./connections.ts";
+import { automationsTick, ensureAutomations } from "./automations.ts";
+import { registerZaloProxy, runZaloFollowUps, syncZalo } from "./zalo-followup.ts";
+
+export * from "./queue.ts";
+export * from "./runtime.ts";
+export * from "./review.ts";
+export * from "./ads.ts";
+export * from "./publishing.ts";
+export * from "./approvals.ts";
+export * from "./learning.ts";
+export * from "./creative.ts";
+export * from "./connections.ts";
+export * from "./automations.ts";
+export * from "./zalo-followup.ts";
+
+export async function dailyReport(bizId: string) {
+  const ads = q.all<Row>("SELECT id FROM ad WHERE biz_id = ?", bizId);
+  const m = sumMetrics(ads.flatMap((a) => latestDaily(bizId, a.id, today())));
+  const leads = q.scalar<number>("SELECT COUNT(*) FROM lead WHERE biz_id = ? AND created_at >= ?", bizId, `${today()}T00:00:00`);
+  const hot = q.scalar<number>("SELECT COUNT(*) FROM lead WHERE biz_id = ? AND grade = 'hot' AND updated_at >= ?", bizId, `${today()}T00:00:00`);
+  const revenue = q.scalar<number>("SELECT COALESCE(SUM(total),0) FROM orders WHERE biz_id = ? AND created_at >= ?", bizId, `${today()}T00:00:00`);
+  const pending = q.scalar<number>("SELECT COUNT(*) FROM approval WHERE biz_id = ? AND status = 'pending'", bizId);
+  const text = `Báo cáo sáng ${q.get<Row>("SELECT name FROM biz WHERE id = ?", bizId)?.name ?? ""}, ${today()}\n• Chi ads: ${formatVnd(m.spend)} · ${m.results} kết quả\n• Lead mới: ${leads} (nóng: ${hot})\n• Doanh thu ghi nhận: ${formatVnd(revenue)}\n• ${pending} mục chờ Sếp duyệt`;
+  await sendTelegram(text, "info");
+  audit(bizId, "analytics_agent", "report.daily", undefined, { text });
+  emit(bizId, "alert.raised", { level: "info", text: "Báo cáo sáng đã sẵn sàng" });
+}
+
+export const HANDLERS: Record<string, Handler> = {
+  "agent.run": async (p) => runTask(p.taskId),
+  "chat.ingest": async (p) => void (await handleIncoming(p.bizId, p.msg)),
+  "creative.flow": async (p) => runVideoJob(p.jobId),
+  "publish.draft": async (p) => runDraftUpload(p.publishJobId),
+  "publish.schedule": async (p, job) => void schedulePublish(job.biz_id, p.contentItemId),
+  "publish.run": async (p) => runPublishJob(p.publishJobId),
+  "posts.snapshot": async (p) => snapshotPost(p.postId, p.mark),
+  "candidate.publish": async (p, job) => publishCandidate(job.biz_id, p.candidateId),
+  "action.execute": async (p) => executeAction(p.actionId),
+  // scheduled
+  "metrics.sync.ads": async (p) => void (await syncAdMetrics(p.bizId)),
+  "rules.evaluate": async (p) => runAllRules(p.bizId),
+  "chat.followup": async (p) => { await runFollowUps(p.bizId); await runZaloFollowUps(p.bizId); },
+  "zalo.sync": async (p) => void (await syncZalo(p.bizId)),
+  "learn.daily": async (p) => void learnDaily(p.bizId),
+  "ads.weekly_report": async (p) => { if (q.scalar<number>("SELECT COUNT(*) FROM ad WHERE biz_id = ?", p.bizId)) startAdsReport(p.bizId); },
+  "report.daily": async (p) => dailyReport(p.bizId),
+  "connection.health": async (p) => connectionHealthAll(p.bizId),
+  "automations.tick": async (p) => void (await automationsTick(p.bizId)),
+  "approvals.expire": async () => void expireApprovals(),
+};
+
+export function startOrchestrator() {
+  // Recovery (spec §5): a worker that died mid-task leaves the task "running"/"in_review"; its job is
+  // re-queued by startWorkers, so put the task back to "ready" to let the runtime pick it up again.
+  const stuck = q.all<Row>("SELECT id, biz_id, status FROM task WHERE status IN ('running','in_review')");
+  for (const t of stuck) {
+    update("task", t.id, { status: "ready", step: "Khôi phục sau khởi động lại" });
+    audit(t.biz_id, "orchestrator", "task.recovered", { type: "task", id: t.id }, { from: t.status });
+  }
+  // A Flow job cannot resume a half-driven browser session: mark it failed so it can be restarted cleanly.
+  for (const j of q.all<Row>("SELECT id, biz_id FROM creative_job WHERE status = 'running'")) {
+    update("creative_job", j.id, { status: "failed", error: "Server khởi động lại giữa chừng, hãy chạy lại", step: null });
+  }
+  registerTelegramFromDb();
+  registerZaloProxy();
+  for (const b of q.all<Row>("SELECT id FROM biz")) {
+    ensureAutomations(b.id);
+    // Configs can run every 5 minutes: the tick and rule evaluation must be at least that frequent.
+    if (!q.get("SELECT id FROM schedule WHERE biz_id = ? AND name = 'automations.tick'", b.id))
+      insert("schedule", { biz_id: b.id, name: "automations.tick", queue: "ads", every_minutes: 5, enabled: 1, label: "Chạy cấu hình tự động (5 phút)", last_run_at: nowIso() });
+    if (!q.get("SELECT id FROM schedule WHERE biz_id = ? AND name = 'zalo.sync'", b.id))
+      insert("schedule", { biz_id: b.id, name: "zalo.sync", queue: "chat", every_minutes: 2, enabled: 1, label: "Đồng bộ hội thoại Zalo từ ZL-CRM (2 phút)", last_run_at: nowIso() });
+    q.run("UPDATE schedule SET every_minutes = 5, label = 'Chạy rule/cấu hình quảng cáo (5 phút)' WHERE biz_id = ? AND name = 'rules.evaluate' AND every_minutes > 5", b.id);
+  }
+  const stopWorkers = startWorkers(HANDLERS);
+  const stopScheduler = startScheduler();
+  return () => {
+    stopWorkers();
+    stopScheduler();
+  };
+}

@@ -1,0 +1,26 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+  --color-page: var(--page);
+  --color-card: var(--card);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-soft: var(--soft);
+}
+:root { --page: #f5f7fb; --card: #ffffff; --line: #e8ecf3; --ink: #0f172a; --muted: #64748b; --soft: #f1f5f9; color-scheme: light; }
+.dark { --page: #0b1020; --card: #121a2b; --line: #22304a; --ink: #e6ebf5; --muted: #93a1b8; --soft: #1a2438; color-scheme: dark; }
+html, body, #root { height: 100%; }
+body { background: var(--page); color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+.scroll-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }
+
+/* AI Agent Ads workspace: same components, violet accent (Tailwind v4 utilities read --color-blue-*). */
+.ads-theme {
+  --color-blue-50: oklch(96.9% 0.016 293.756); --color-blue-100: oklch(94.3% 0.029 294.588); --color-blue-200: oklch(89.4% 0.057 293.283);
+  --color-blue-300: oklch(81.1% 0.111 293.571); --color-blue-400: oklch(70.2% 0.183 293.541); --color-blue-500: oklch(60.6% 0.25 292.717);
+  --color-blue-600: oklch(54.1% 0.281 293.009); --color-blue-700: oklch(49.1% 0.27 292.581); --color-blue-800: oklch(43.2% 0.232 292.759);
+  --color-blue-900: oklch(38% 0.189 293.745);
+}
