@@ -19,6 +19,7 @@ Vì sao máy khác chạy **giống hệt** máy gốc:
 - **Phiên bản khoá cứng**: `pnpm-lock.yaml` + `pnpm install --frozen-lockfile` (pnpm 12.8.1 khoá trong `packageManager`), ZL-CRM dùng `package-lock.json` + `npm ci`, thư viện Python ghim phiên bản trong `tools/video/requirements*.txt`.
 - **Skill Phòng Marketing đóng gói trong repo** (`assets/claude`: 40 skill + DNA + 8 nhân viên). Hệ thống đọc bản này, không phụ thuộc `~/.claude` của từng máy. Sửa skill ở `~/.claude` xong chạy `pnpm skills:export` rồi commit.
 - **ZL-CRM đóng gói trong `services/zl-crm`** (kèm bản vá, xem `services/zl-crm/UPSTREAM.md`), tự tạo database và tự nối vào Agentic AI khi `pnpm dev`.
+- **Cấu hình workspace đóng gói** (`config/taki-workspace.json`): DNA, cài đặt, mức tự chủ + model từng agent, mẫu quảng cáo, luồng tự động, tri thức tự thêm. Máy mới tự nạp khi khởi tạo. Sau khi chỉnh trên giao diện: `pnpm workspace:export` rồi commit.
 - **Font phụ đề video đóng gói** (`tools/video/fonts`, Be Vietnam Pro) → video xuất ra giống nhau trên mọi máy.
 - **CI trên GitHub** (`.github/workflows/ci.yml`) cài lại từ đầu, typecheck, test, build giao diện và chạy thử API mỗi lần đẩy code. `pnpm verify` chạy cùng bộ kiểm tra trên máy.
 
@@ -31,6 +32,7 @@ Không nằm trong repo (sinh riêng cho từng máy, không bao giờ đẩy l�
 | `pnpm verify` | Typecheck + test + build giao diện |
 | `pnpm skills:export` | Đóng gói lại skill từ `~/.claude` vào repo |
 | `pnpm zlcrm:connect` | Nối lại ZL-CRM vào Agentic AI |
+| `pnpm workspace:export` | Xuất cấu hình hiện tại (DNA, agent, luồng…) vào repo |
 | `pnpm seed` | Xóa và tạo lại dữ liệu mẫu |
 | `pnpm test` | Test Rule Engine (gồm test "không bao giờ vượt trần ngân sách") và chấm điểm bài |
 | `pnpm eval` | Chấm Chat Agent trên bộ tình huống chuẩn (ngưỡng 80%) |

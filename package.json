@@ -21,7 +21,8 @@
     "bootstrap": "node scripts/bootstrap.mjs",
     "skills:export": "tsx scripts/export-skills.ts",
     "zlcrm:connect": "node scripts/zlcrm-connect.mjs",
-    "verify": "pnpm run typecheck && pnpm test && pnpm run build:web"
+    "verify": "pnpm run typecheck && pnpm test && pnpm run build:web",
+    "workspace:export": "tsx --env-file-if-exists=.env scripts/export-workspace.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.129.0",

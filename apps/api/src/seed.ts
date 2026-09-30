@@ -10,6 +10,7 @@ import {
 import { encryptSecret, nowIso, seeded, sha256 } from "@dotaka/shared";
 import { DEFAULT_LLM } from "@dotaka/llm-gateway";
 import { DNA_SKILL, SKILLS_DIR, syncSkills } from "@dotaka/skills";
+import { applyWorkspace } from "./workspace.ts";
 
 /**
  * Seed a TAKI Group workspace from the Marketing department's DNA skill (~/.claude/skills/taki-dna).
@@ -274,6 +275,9 @@ export async function seed(opts: { reset?: boolean; blank?: boolean } = {}) {
   console.log(`\n🔑 MCP key (chỉ hiện 1 lần): ${raw}\n`);
   // Sample data was drafted offline; from now on agents use the configured provider (default: Claude CLI).
   update("biz", B, { settings: { ...DEFAULT_SETTINGS, llm: DEFAULT_LLM } });
+  // Same configuration as the original machine: DNA, settings, agents, templates, flows (config/taki-workspace.json)
+  const snap = await applyWorkspace(B);
+  if (snap) console.log(`🧩 Nạp cấu hình workspace (xuất lúc ${snap.exportedAt})`);
   return B;
 }
 

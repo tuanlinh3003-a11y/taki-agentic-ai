@@ -1,0 +1,632 @@
+{
+  "version": 1,
+  "exportedAt": "2026-09-30T12:44:06.059Z",
+  "biz": {
+    "name": "TAKI Group",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "currency": "VND"
+  },
+  "dna": {
+    "company": {
+      "name": "TAKI Group",
+      "brand": "TAKI Academy",
+      "website": "taki.vn",
+      "industry": "Đào tạo kinh doanh & ứng dụng AI thực chiến",
+      "ceo": "Nguyễn Tất Kiểm",
+      "scale": "320.000+ học viên (⚠️ chờ chốt số công bố) · thành lập 2016",
+      "legal": "CÔNG TY TNHH CÔNG NGHỆ VÀ GIÁO DỤC TAKI",
+      "hotline": "0989.493.588",
+      "slogan": "Thắp lửa hoài bão"
+    },
+    "positioning": "Hệ sinh thái đào tạo và ứng dụng AI thực chiến cho chủ doanh nghiệp và người kinh doanh Việt, biến AI thành doanh thu và hệ thống vận hành thật (⚠️ bản nháp, chờ chốt).",
+    "mission": "Thắp lửa hoài bão: giúp chủ doanh nghiệp Việt vận hành bằng hệ thống + AI thay vì cảm tính.",
+    "audience": [
+      {
+        "name": "Chủ doanh nghiệp / CEO / Founder SME (doanh thu vài tỷ đến ~100 tỷ)",
+        "pains": [
+          "Làm việc như trâu mà doanh nghiệp đứng im",
+          "Phụ thuộc vài nhân sự giỏi",
+          "Chi phí marketing đội mà không ra đơn",
+          "Nghe AI nhiều mà không biết áp vào đâu"
+        ],
+        "goals": [
+          "Vận hành bằng hệ thống + AI",
+          "Giảm phụ thuộc con người",
+          "Tăng lợi nhuận, có thời gian"
+        ]
+      },
+      {
+        "name": "Người kinh doanh online / bán hàng / affiliate",
+        "pains": [
+          "Không biết chạy ads hay làm content ra đơn",
+          "Làm video, nội dung tốn thời gian",
+          "Cạnh tranh giá"
+        ],
+        "goals": [
+          "Ra đơn nhanh",
+          "Làm content, video nhanh bằng AI",
+          "Thêm nguồn thu"
+        ]
+      },
+      {
+        "name": "Người xây nhân hiệu / chuyên gia",
+        "pains": [
+          "Không đều content",
+          "Không có hệ thống",
+          "Chưa biết dùng AI nhân bản bản thân"
+        ],
+        "goals": [
+          "Nhân hiệu bán được kiến thức, dịch vụ"
+        ]
+      }
+    ],
+    "products": [
+      {
+        "key": "ai-business-system",
+        "name": "AI Business System",
+        "aliases": [
+          "ABS",
+          "AI Business",
+          "khóa CEO",
+          "chương trình 3 ngày"
+        ],
+        "summary": "Chương trình offline giúp CEO đưa AI vào vận hành, marketing, bán hàng",
+        "format": "Offline",
+        "price": 12000000,
+        "audience": "Chủ DN, CEO, founder",
+        "link": "aibusinesssystem.taki.vn",
+        "verified": true
+      },
+      {
+        "key": "scale-camp",
+        "name": "Scale Camp",
+        "aliases": [
+          "scale camp",
+          "scale"
+        ],
+        "summary": "Chương trình tăng trưởng, scale doanh nghiệp",
+        "format": "Offline",
+        "price": 10000000,
+        "audience": "Chủ DN đang muốn mở rộng",
+        "link": "scalecamp.nguyentatkiem.com",
+        "verified": true
+      },
+      {
+        "key": "sieu-tro-ly-nhan-hieu",
+        "name": "Siêu Trợ Lý Nhân Hiệu",
+        "aliases": [
+          "trợ lý nhân hiệu",
+          "nhân hiệu"
+        ],
+        "summary": "Xây trợ lý AI cho nhân hiệu cá nhân",
+        "format": "Khóa học",
+        "price": 5000000,
+        "audience": "Người xây personal brand",
+        "verified": true
+      },
+      {
+        "key": "ai-plus",
+        "name": "AI Plus (miễn phí 5 buổi)",
+        "aliases": [
+          "AI Plus",
+          "miễn phí",
+          "5 buổi",
+          "khóa free"
+        ],
+        "summary": "Khóa AI miễn phí dẫn dắt cho người mới",
+        "format": "Online 5 buổi",
+        "price": 0,
+        "audience": "Người mới, top phễu",
+        "link": "nguyentatkiem.com.vn/aiplusntk",
+        "verified": true
+      },
+      {
+        "key": "ai-super-traffic",
+        "name": "AI Super Traffic",
+        "aliases": [
+          "super traffic",
+          "traffic"
+        ],
+        "summary": "Kéo traffic đa nền tảng bằng AI",
+        "format": "Khóa học",
+        "price": null,
+        "audience": "Người làm content, traffic",
+        "link": "aisupertraffic.taki.vn",
+        "verified": false
+      },
+      {
+        "key": "ai-affiliate-systems",
+        "name": "AI Affiliate Systems",
+        "aliases": [
+          "affiliate"
+        ],
+        "summary": "Hệ thống kiếm tiền affiliate bằng AI",
+        "format": "Khóa học",
+        "price": null,
+        "audience": "Người làm affiliate",
+        "link": "affiliate.taki.vn",
+        "verified": false
+      },
+      {
+        "key": "ai-super-builder",
+        "name": "AI Super Builder",
+        "aliases": [
+          "super builder",
+          "builder"
+        ],
+        "summary": "Dựng sản phẩm, website, app bằng AI",
+        "format": "Khóa học",
+        "price": null,
+        "audience": "Builder, người tự làm sản phẩm",
+        "link": "aisuperbuilder.taki.vn",
+        "verified": false
+      },
+      {
+        "key": "ai-scale-up-coaching",
+        "name": "AI Scale Up Coaching",
+        "aliases": [
+          "coaching"
+        ],
+        "summary": "Coaching đồng hành ứng dụng AI",
+        "format": "Coaching",
+        "price": null,
+        "audience": "Chủ DN",
+        "verified": false
+      },
+      {
+        "key": "ai-for-ceo",
+        "name": "AI For CEO",
+        "aliases": [
+          "AI for CEO"
+        ],
+        "summary": "Đào tạo AI cho CEO",
+        "format": "Khóa học",
+        "price": null,
+        "audience": "CEO",
+        "link": "aiforceo.nguyentatkiem.com",
+        "verified": false
+      },
+      {
+        "key": "scale-up-business",
+        "name": "Scale Up Business",
+        "aliases": [
+          "cộng đồng 52 tuần",
+          "scale up"
+        ],
+        "summary": "Cộng đồng 52 tuần về scale doanh nghiệp",
+        "format": "Cộng đồng 52 tuần",
+        "price": null,
+        "audience": "CEO/founder doanh thu 3 đến 100 tỷ",
+        "link": "scaleup.nguyentatkiem.com.vn",
+        "verified": false
+      },
+      {
+        "key": "autovis",
+        "name": "Autovis.ai",
+        "aliases": [
+          "autovis",
+          "video AI"
+        ],
+        "summary": "Tạo video AI: AI KOL, AI review, Viral Dance Copy",
+        "format": "SaaS",
+        "price": null,
+        "audience": "Content creator, affiliate, người bán hàng",
+        "link": "autovis.ai",
+        "verified": false
+      },
+      {
+        "key": "remin",
+        "name": "Remin.ai",
+        "aliases": [
+          "remin",
+          "ghi âm AI"
+        ],
+        "summary": "Ghi âm AI, chuyển giọng nói thành văn bản và insight",
+        "format": "SaaS",
+        "price": null,
+        "audience": "Người đi làm, đội họp nhiều",
+        "link": "remin.ai",
+        "verified": false
+      }
+    ],
+    "offers": [
+      "Khóa AI Plus miễn phí 5 buổi (cửa vào phễu)",
+      "Chính sách khóa offline: không hoàn học phí; được bảo lưu, chuyển khóa khác hoặc chuyển cho người khác đi học"
+    ],
+    "voice": {
+      "style": [
+        "Thực chiến",
+        "Thẳng",
+        "Đời thường",
+        "Có số liệu"
+      ],
+      "do": [
+        "Vào thẳng vấn đề ngay câu đầu",
+        "Câu ngắn, dứt khoát",
+        "Số liệu thật, ví dụ thật",
+        "Gọi người đọc là bạn (content TAKI Academy)",
+        "CTA 1 hành động"
+      ],
+      "dont": [
+        "Mở màn Tuyệt vời, lời dẫn sáo rỗng",
+        "Đại ngôn: đỉnh cao, số 1, tuyệt vời nhất",
+        "Dùng em-dash",
+        "Khen lấy lòng",
+        "Hạ thấp đối thủ đích danh"
+      ],
+      "sample": "Bạn thuê thêm 3 nhân sự. Doanh thu vẫn đứng im. Vấn đề không phải thiếu người, mà thiếu hệ thống."
+    },
+    "differentiators": [
+      "Thực chiến, không hàn lâm: dạy để làm được ngay, có số liệu, có case",
+      "AI-first ứng dụng cho SME Việt, gắn thẳng vào marketing, bán hàng, vận hành",
+      "Trọn hệ sinh thái: đào tạo, công cụ (Autovis, Remin), coaching, cộng đồng"
+    ],
+    "forbiddenClaims": [
+      "làm giàu nhanh",
+      "cam kết thu nhập",
+      "đảm bảo thu nhập",
+      "cam kết kết quả",
+      "đảm bảo doanh thu",
+      "chắc chắn ra đơn",
+      "chắc chắn thành công",
+      "100% thành công",
+      "hoàn tiền nếu không"
+    ],
+    "bannedChars": [
+      "—"
+    ],
+    "pendingConfirmations": [
+      "Định vị và USP đang là bản nháp",
+      "Bộ số liệu công bố (300k hay 320k học viên; 8, 13, 15 hay 16 năm)",
+      "Giá và mô tả các khóa đang ghi 'liên hệ' (AI Super Traffic, AI Affiliate Systems, AI Super Builder, AI For CEO, Scale Up Business, Coaching)",
+      "Tính năng, giá, USP của Autovis, Remin, Diaflow",
+      "Danh sách đối thủ trực tiếp",
+      "Thứ tự ưu tiên các phân khúc khách hàng"
+    ],
+    "channels": [
+      "Facebook (TAKI Academy + nhân hiệu Nguyễn Tất Kiểm)",
+      "TikTok",
+      "YouTube",
+      "Zalo OA",
+      "Website taki.vn"
+    ],
+    "goals": {
+      "yearTarget": 4000000000,
+      "currentRunRate": 0,
+      "painPoint": "Làm việc như trâu mà doanh nghiệp đứng im",
+      "competitors": [
+        "Funix",
+        "FPT",
+        "Học viện ứng dụng AI"
+      ]
+    }
+  },
+  "settings": {
+    "caps": {
+      "maxTotalDailyAdBudget": 80000000,
+      "maxAdsCreatedPerDay": 5,
+      "maxPostsPerDayPerChannel": 3
+    },
+    "quietHours": [
+      22,
+      7
+    ],
+    "explorationPct": 15,
+    "approvalExpiryHours": 72,
+    "postScoreThreshold": 70,
+    "attributionMinConfidence": 0.6,
+    "llm": {
+      "provider": "claude_cli",
+      "models": {
+        "small": "claude-haiku-4-5",
+        "medium": "claude-sonnet-5",
+        "large": "claude-opus-5"
+      },
+      "effort": "medium"
+    }
+  },
+  "agents": [
+    {
+      "agent": "ads",
+      "autonomy": "L1",
+      "enabled": true,
+      "tokenBudgetDay": 200000,
+      "model": null
+    },
+    {
+      "agent": "analytics",
+      "autonomy": "L2",
+      "enabled": true,
+      "tokenBudgetDay": 200000,
+      "model": null
+    },
+    {
+      "agent": "brief",
+      "autonomy": "L1",
+      "enabled": true,
+      "tokenBudgetDay": 300000,
+      "model": null
+    },
+    {
+      "agent": "chat",
+      "autonomy": "L2",
+      "enabled": true,
+      "tokenBudgetDay": 1000000,
+      "model": null
+    },
+    {
+      "agent": "content",
+      "autonomy": "L1",
+      "enabled": true,
+      "tokenBudgetDay": 2000000,
+      "model": null
+    },
+    {
+      "agent": "creative",
+      "autonomy": "L1",
+      "enabled": true,
+      "tokenBudgetDay": 3000000,
+      "model": null
+    },
+    {
+      "agent": "dna_intake",
+      "autonomy": "L1",
+      "enabled": true,
+      "tokenBudgetDay": 300000,
+      "model": null
+    },
+    {
+      "agent": "feedback",
+      "autonomy": "L0",
+      "enabled": true,
+      "tokenBudgetDay": 300000,
+      "model": null
+    },
+    {
+      "agent": "follow_up",
+      "autonomy": "L2",
+      "enabled": true,
+      "tokenBudgetDay": 300000,
+      "model": null
+    },
+    {
+      "agent": "market_research",
+      "autonomy": "L0",
+      "enabled": true,
+      "tokenBudgetDay": 600000,
+      "model": null
+    },
+    {
+      "agent": "post_scanner",
+      "autonomy": "L2",
+      "enabled": true,
+      "tokenBudgetDay": 100000,
+      "model": null
+    },
+    {
+      "agent": "publishing",
+      "autonomy": "L1",
+      "enabled": true,
+      "tokenBudgetDay": 100000,
+      "model": null
+    },
+    {
+      "agent": "review",
+      "autonomy": "L2",
+      "enabled": true,
+      "tokenBudgetDay": 300000,
+      "model": null
+    },
+    {
+      "agent": "seo_web",
+      "autonomy": "L1",
+      "enabled": true,
+      "tokenBudgetDay": 500000,
+      "model": null
+    },
+    {
+      "agent": "strategy",
+      "autonomy": "L1",
+      "enabled": true,
+      "tokenBudgetDay": 1200000,
+      "model": null
+    },
+    {
+      "agent": "video_script",
+      "autonomy": "L1",
+      "enabled": true,
+      "tokenBudgetDay": 500000,
+      "model": null
+    }
+  ],
+  "adTemplates": [
+    {
+      "name": "msg",
+      "platform": "meta",
+      "definition": {
+        "objective": "messages",
+        "destination": {
+          "type": "messenger"
+        },
+        "audience": {
+          "locations": [
+            "VN"
+          ],
+          "ageMin": 28,
+          "ageMax": 55,
+          "interests": [
+            "Quản trị doanh nghiệp",
+            "Khởi nghiệp",
+            "CEO",
+            "Trí tuệ nhân tạo"
+          ]
+        },
+        "placements": "auto",
+        "budget": {
+          "type": "daily",
+          "amount": 2000000,
+          "currency": "VND"
+        },
+        "naming": "{date}_{page}_{postId}_{template}",
+        "cta": "MESSAGE_PAGE"
+      }
+    },
+    {
+      "name": "spark",
+      "platform": "tiktok",
+      "definition": {
+        "objective": "lead_generation",
+        "spark": true,
+        "audience": {
+          "locations": [
+            "VN"
+          ],
+          "ageMin": 25,
+          "ageMax": 50
+        },
+        "budget": {
+          "type": "daily",
+          "amount": 2000000,
+          "currency": "VND"
+        },
+        "naming": "{date}_{page}_{postId}_{template}"
+      }
+    }
+  ],
+  "automations": [
+    {
+      "type": "auto_off",
+      "name": "Tắt ads lỗ",
+      "status": "active",
+      "config": {
+        "platform": "any",
+        "nameFilter": null,
+        "match": "all",
+        "conditions": [
+          {
+            "metric": "spend",
+            "window": "today",
+            "op": ">",
+            "value": 1500000
+          },
+          {
+            "metric": "results",
+            "window": "today",
+            "op": "==",
+            "value": 0
+          }
+        ],
+        "minSpend": 1000000,
+        "notify": true,
+        "everyMinutes": 15,
+        "live": false
+      }
+    },
+    {
+      "type": "budget",
+      "name": "Tăng ngân sách ads thắng",
+      "status": "active",
+      "config": {
+        "platform": "any",
+        "nameFilter": null,
+        "match": "all",
+        "conditions": [
+          {
+            "metric": "cpa",
+            "window": "today",
+            "op": "<",
+            "ref": "target_cpa",
+            "factor": 0.9,
+            "consecutiveDays": 3
+          }
+        ],
+        "minSpend": 500000,
+        "notify": false,
+        "everyMinutes": 1440,
+        "pct": 20,
+        "maxBudget": 15000000,
+        "cooldownHours": 24,
+        "live": false
+      }
+    },
+    {
+      "type": "budget",
+      "name": "Giảm ngân sách CPA cao",
+      "status": "active",
+      "config": {
+        "platform": "any",
+        "nameFilter": null,
+        "match": "all",
+        "conditions": [
+          {
+            "metric": "cpa",
+            "window": "3d",
+            "op": ">",
+            "ref": "target_cpa",
+            "factor": 1.5
+          }
+        ],
+        "minSpend": 1000000,
+        "notify": true,
+        "everyMinutes": 1440,
+        "pct": -20,
+        "maxBudget": 20000000,
+        "cooldownHours": 24,
+        "live": false
+      }
+    }
+  ],
+  "knowledge": [],
+  "schedules": [
+    {
+      "name": "ads.weekly_report",
+      "every_minutes": 10080,
+      "enabled": 1
+    },
+    {
+      "name": "approvals.expire",
+      "every_minutes": 30,
+      "enabled": 1
+    },
+    {
+      "name": "automations.tick",
+      "every_minutes": 5,
+      "enabled": 1
+    },
+    {
+      "name": "chat.followup",
+      "every_minutes": 10,
+      "enabled": 1
+    },
+    {
+      "name": "connection.health",
+      "every_minutes": 60,
+      "enabled": 1
+    },
+    {
+      "name": "learn.daily",
+      "every_minutes": 1440,
+      "enabled": 1
+    },
+    {
+      "name": "metrics.sync.ads",
+      "every_minutes": 15,
+      "enabled": 1
+    },
+    {
+      "name": "report.daily",
+      "every_minutes": 1440,
+      "enabled": 1
+    },
+    {
+      "name": "rules.evaluate",
+      "every_minutes": 5,
+      "enabled": 1
+    },
+    {
+      "name": "zalo.sync",
+      "every_minutes": 2,
+      "enabled": 1
+    }
+  ]
+}
