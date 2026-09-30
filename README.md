@@ -8,8 +8,19 @@ Hệ thống AI Agent vận hành marketing & bán hàng cho **TAKI Group / TAKI
 
 Yêu cầu: **Node.js 24+** (`.nvmrc`), **Git**, **Claude Code CLI** đã đăng nhập (`claude`). Tuỳ chọn: **PostgreSQL** (để chạy ZL-CRM/Zalo), **Python 3 + ffmpeg** (hậu kỳ video Flow). Đã thử trên macOS; Linux tương tự.
 
+**Máy Mac mới tinh** — cài công cụ nền (1 lần, mở Terminal):
+
 ```bash
-git clone <địa chỉ repo> taki-agentic-ai
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"   # Homebrew
+brew install node@24 git postgresql@17 ffmpeg python && brew link --overwrite node@24
+brew services start postgresql@17
+npm i -g @anthropic-ai/claude-code && claude    # đăng nhập tài khoản Claude
+```
+
+Cài hệ thống:
+
+```bash
+git clone https://github.com/tuanlinh3003-a11y/taki-agentic-ai.git
 cd taki-agentic-ai
 node scripts/bootstrap.mjs      # cài 1 lần: thư viện, .env, skill, công cụ video, ZL-CRM, tự kiểm tra
 pnpm dev                        # chạy: http://localhost:5173  (ZL-CRM: http://localhost:5174)
