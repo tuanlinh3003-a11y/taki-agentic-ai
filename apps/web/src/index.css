@@ -13,6 +13,9 @@
 :root { --page: #f5f7fb; --card: #ffffff; --line: #e8ecf3; --ink: #0f172a; --muted: #64748b; --soft: #f1f5f9; color-scheme: light; }
 .dark { --page: #0b1020; --card: #121a2b; --line: #22304a; --ink: #e6ebf5; --muted: #93a1b8; --soft: #1a2438; color-scheme: dark; }
 html, body, #root { height: 100%; }
+/* Ngân Nguyệt docked on the right (wide screens): the page makes room instead of being covered. */
+#root { transition: padding-right 0.2s ease; }
+.assistant-docked #root { padding-right: 420px; }
 body { background: var(--page); color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
 .scroll-thin::-webkit-scrollbar { width: 6px; height: 6px; }
 .scroll-thin::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; }

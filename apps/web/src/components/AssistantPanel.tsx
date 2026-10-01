@@ -84,14 +84,34 @@ export function Markdown({ text }: { text: string }) {
 }
 
 // ---------------- Panel ----------------
+/** Wide screens: the panel docks to the right and pushes the page (no overlap). Narrow: floating overlay. */
+const DOCK_MQ = "(min-width: 1200px)";
+function useWide() {
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && window.matchMedia(DOCK_MQ).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(DOCK_MQ);
+    const h = () => setWide(mq.matches);
+    mq.addEventListener("change", h);
+    return () => mq.removeEventListener("change", h);
+  }, []);
+  return wide;
+}
+
 export function AssistantPanel() {
-  const [open, setOpen] = useState(() => store.get("assistant.open") === "1");
+  const wide = useWide();
+  // Collapsed by default; only a wide screen remembers "open" (an overlay would cover the page).
+  const [open, setOpen] = useState(() => store.get("assistant.open") === "1" && window.matchMedia(DOCK_MQ).matches);
   const [tab, setTab] = useState<Tab>("chat");
   const [threadId, setThreadId] = useState<string | null>(() => store.get("assistant.thread"));
   const info = useApi<any>("assistant");
   const findings = useApi<any[]>("assistant/findings", ["task.", "approval.", "creative.", "alert.", "conversation.handoff"]);
   const toast = useToast();
   useEffect(() => store.set("assistant.open", open ? "1" : null), [open]);
+  const docked = open && wide;
+  useEffect(() => {
+    document.documentElement.classList.toggle("assistant-docked", docked);
+    return () => document.documentElement.classList.remove("assistant-docked");
+  }, [docked]);
   useEffect(() => store.set("assistant.thread", threadId), [threadId]);
   const urgent = (findings.data ?? []).filter((f) => f.level !== "info").length;
 
@@ -117,7 +137,9 @@ export function AssistantPanel() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-40 flex h-[min(760px,calc(100vh-2rem))] w-[440px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-line bg-card shadow-2xl">
+    <div className={cx("fixed z-40 flex flex-col overflow-hidden border-line bg-card", docked
+      ? "inset-y-0 right-0 w-[420px] border-l shadow-xl"
+      : "bottom-4 right-4 h-[min(760px,calc(100vh-2rem))] w-[440px] max-w-[calc(100vw-2rem)] rounded-2xl border shadow-2xl")}>
       <div className="flex items-center gap-3 bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 px-4 py-3 text-white">
         <NguyetAvatar size={44} />
         <div className="min-w-0 flex-1"><p className="truncate text-base font-bold">Trợ lý Ngân Nguyệt</p><p className="truncate text-xs text-white/80">Tổng điều phối · riêng của Sếp</p></div>
