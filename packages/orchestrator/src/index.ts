@@ -24,6 +24,7 @@ export * from "./creative.ts";
 export * from "./connections.ts";
 export * from "./automations.ts";
 export * from "./zalo-followup.ts";
+export * from "./chrome-profiles.ts";
 
 export async function dailyReport(bizId: string) {
   const ads = q.all<Row>("SELECT id FROM ad WHERE biz_id = ?", bizId);

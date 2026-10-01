@@ -60,7 +60,8 @@ export function VideoFlow() {
   };
 
   const tool = tools.data?.find((t) => t.key === form.tool);
-  const ready = settings.data?.browserDeviceId && sys?.llm?.provider === "claude_cli";
+  const hasBrowser = !!(settings.data?.chromeProfileDir || settings.data?.browserDeviceId);
+  const ready = hasBrowser && sys?.llm?.provider === "claude_cli";
   const current = selected ?? jobs.data?.[0]?.id ?? null;
 
   return (
@@ -69,10 +70,10 @@ export function VideoFlow() {
 
       <div className={cx("flex flex-wrap items-center gap-3 rounded-2xl border p-4 text-sm", ready ? "border-emerald-500/30 bg-emerald-500/5" : "border-amber-500/30 bg-amber-500/10")}>
         <Globe className="h-5 w-5" />
-        <span>Trình duyệt Flow: {settings.data?.browserDeviceId ? <b>{settings.data.browserLabel ?? settings.data.browserDeviceId.slice(0, 8)}</b> : <b className="text-amber-700 dark:text-amber-300">chưa chọn</b>}</span>
+        <span>Chrome cho Flow: {settings.data?.chromeProfileDir ? <b>{settings.data.chromeProfileName}{settings.data.chromeProfileEmail ? ` · ${settings.data.chromeProfileEmail}` : ""}</b> : settings.data?.browserDeviceId ? <b>{settings.data.browserLabel ?? settings.data.browserDeviceId.slice(0, 8)}</b> : <b className="text-amber-700 dark:text-amber-300">chưa chọn</b>}</span>
         <span>· Claude: {sys?.llm?.provider === "claude_cli" ? <Badge tone="green">tài khoản CLI</Badge> : <Badge tone="amber">cần chế độ tài khoản Claude</Badge>}</span>
-        <Button size="sm" onClick={() => setPickBrowser(true)}>{settings.data?.browserDeviceId ? "Đổi trình duyệt" : "Chọn trình duyệt"}</Button>
-        <span className="text-xs text-muted">Chrome đó phải đang đăng nhập Google Flow và có các công cụ bên dưới trong project.</span>
+        <Button size="sm" onClick={() => setPickBrowser(true)}>{hasBrowser ? "Đổi profile Chrome" : "Chọn profile Chrome"}</Button>
+        <span className="text-xs text-muted">Profile đó phải đăng nhập Google Flow và có cài + đăng nhập extension Claude in Chrome.</span>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
@@ -157,7 +158,7 @@ export function VideoFlow() {
           </ul>
         </div>
       </Modal>
-      <BrowserPicker open={pickBrowser} onClose={() => setPickBrowser(false)} onSaved={() => { setPickBrowser(false); settings.reload(); }} />
+      <BrowserPicker open={pickBrowser} current={settings.data} onClose={() => setPickBrowser(false)} onSaved={() => { setPickBrowser(false); settings.reload(); }} />
     </div>
   );
 }
@@ -192,26 +193,73 @@ function JobDetail({ id }: { id: string }) {
   );
 }
 
-function BrowserPicker({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
-  const [list, setList] = useState<any[] | null>(null);
-  const [loading, setLoading] = useState(false);
+function BrowserPicker({ open, current, onClose, onSaved }: { open: boolean; current: any; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
-  const detect = async () => {
-    setLoading(true);
-    try { const r = await api.post("creative/browsers"); setList(r.browsers); if (r.error) toast(r.error, "err"); } catch (e: any) { toast(e.message, "err"); } finally { setLoading(false); }
-  };
-  useEffect(() => { if (open && !list) void detect(); }, [open]);
-  const choose = async (b: any) => { await api.put("creative/settings", { browserDeviceId: b.deviceId, browserLabel: `${b.name} (${b.os})` }); toast(`Đã chọn ${b.name}`); onSaved(); };
+  const [data, setData] = useState<{ profiles: any[] } | null>(null);
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [checks, setChecks] = useState<Record<string, { found: boolean; text: string }>>({});
+  const load = async () => { try { setData(await api.get("creative/chrome-profiles")); } catch (e: any) { toast(e.message, "err"); } };
+  useEffect(() => { if (open) void load(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const key = (p: any) => `${p.channel}/${p.dir}`;
+  const act = async (k: string, fn: () => Promise<any>) => { setBusy(k); try { return await fn(); } catch (e: any) { toast(e.message, "err"); } finally { setBusy(null); } };
+  const choose = (p: any) => act(`c:${key(p)}`, async () => {
+    await api.put("creative/settings", { chromeChannel: p.channel, chromeProfileDir: p.dir, chromeProfileName: p.name, chromeProfileEmail: p.email });
+    toast(p.claudeExtension ? `Đã chọn profile "${p.name}"` : `Đã chọn "${p.name}" — nhớ cài Claude in Chrome cho profile này`);
+    onSaved();
+  });
+  const openP = (p: any, target: "flow" | "extension") => act(`${target}:${key(p)}`, async () => {
+    await api.post("creative/chrome-profiles/open", { channel: p.channel, dir: p.dir, target });
+    toast(target === "flow" ? `Đã mở Flow trong profile "${p.name}"` : `Đã mở trang cài Claude in Chrome trong profile "${p.name}" — bấm "Thêm vào Chrome" rồi đăng nhập Claude`);
+  });
+  const verify = (p: any) => act(`v:${key(p)}`, async () => {
+    const r = await api.post("creative/chrome-profiles/verify", { channel: p.channel, dir: p.dir });
+    setChecks((c) => ({ ...c, [key(p)]: { found: r.found, text: r.found ? `Kết nối OK (${r.browserName})` : r.error || "Không thấy Claude in Chrome trong profile này" } }));
+    toast(r.found ? `Profile "${p.name}": Claude in Chrome đã kết nối` : `Profile "${p.name}": chưa kết nối Claude in Chrome`, r.found ? "ok" : "err");
+  });
+  const list = (data?.profiles ?? []).filter((p) => !search || `${p.name} ${p.email ?? ""} ${p.googleName ?? ""} ${p.dir}`.toLowerCase().includes(search.toLowerCase()));
+  const isCurrent = (p: any) => current?.chromeChannel === p.channel && current?.chromeProfileDir === p.dir;
+
   return (
-    <Modal open={open} onClose={onClose} title="Chọn Chrome dùng cho Google Flow">
-      <p className="mb-3 text-sm text-muted">Chọn trình duyệt đang đăng nhập tài khoản Google có Flow và các công cụ (Review Đồ Ăn Vặt AI V6, Flow Cooking Director v2, Cinematic Short Film Studio).</p>
-      {loading ? <p className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />Đang hỏi Claude in Chrome…</p> : (
-        <div className="space-y-2">
-          {(list ?? []).map((b) => <button key={b.deviceId} onClick={() => choose(b)} className="flex w-full items-center justify-between rounded-xl border border-line p-3 text-left hover:bg-soft"><span><b>{b.name}</b> <span className="text-xs text-muted">{b.os} · {b.deviceId.slice(0, 8)}</span></span><span className="text-sm text-blue-600">Chọn</span></button>)}
-          {list && !list.length && <Empty>Không thấy trình duyệt nào có Claude in Chrome.</Empty>}
-          <Button size="sm" variant="ghost" onClick={detect}>Quét lại</Button>
+    <Modal open={open} onClose={onClose} wide title="Chọn profile Chrome dùng cho Google Flow">
+      <div className="space-y-3">
+        <p className="text-sm text-muted">Tất cả profile Chrome trên máy này. Chọn profile <b className="text-ink">đang đăng nhập tài khoản Google có Flow</b>. Agent sẽ tự mở đúng profile đó khi chạy — profile cần cài và đăng nhập extension <b className="text-ink">Claude in Chrome</b>.</p>
+        <input className={inputCls} placeholder="Tìm theo tên profile hoặc email…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        {!data ? <p className="flex items-center gap-2 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" />Đang đọc profile Chrome…</p> : list.length === 0 ? <Empty>Không thấy profile nào.</Empty> : (
+          <div className="max-h-[56vh] space-y-2 overflow-y-auto pr-1 scroll-thin">
+            {list.map((p) => {
+              const k = key(p);
+              const chk = checks[k];
+              return (
+                <div key={k} className={cx("rounded-xl border p-3", isCurrent(p) ? "border-blue-500 bg-blue-500/5" : "border-line")}>
+                  <div className="flex items-center gap-3">
+                    {p.hasAvatar
+                      ? <img src={`/v1/creative/chrome-profiles/avatar?channel=${encodeURIComponent(p.channel)}&dir=${encodeURIComponent(p.dir)}`} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />
+                      : <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-soft text-sm font-bold text-muted">{p.name.slice(0, 1).toUpperCase()}</span>}
+                    <div className="min-w-0 flex-1">
+                      <p className="flex flex-wrap items-center gap-1.5 font-semibold text-ink">{p.name}{isCurrent(p) && <Badge tone="blue">Đang dùng cho Flow</Badge>}{p.lastUsed && <Badge>Mở gần nhất</Badge>}</p>
+                      <p className="truncate text-xs text-muted">{p.email ?? "Chưa đăng nhập Google"} · {p.channelName} · {p.dir}</p>
+                    </div>
+                    {p.claudeExtension ? <Badge tone="green">Có Claude in Chrome</Badge> : <Badge tone="amber">Chưa cài Claude in Chrome</Badge>}
+                  </div>
+                  {chk && <p className={cx("mt-2 text-xs", chk.found ? "text-emerald-600" : "text-rose-600")}>{chk.text}</p>}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button size="sm" variant={isCurrent(p) ? "secondary" : "primary"} loading={busy === `c:${k}`} onClick={() => choose(p)}>{isCurrent(p) ? "Đã chọn" : "Chọn profile này"}</Button>
+                    <Button size="sm" loading={busy === `flow:${k}`} onClick={() => openP(p, "flow")}>Mở Flow trong profile</Button>
+                    {!p.claudeExtension && <Button size="sm" variant="soft" loading={busy === `extension:${k}`} onClick={() => openP(p, "extension")}>Cài Claude in Chrome</Button>}
+                    <Button size="sm" variant="ghost" loading={busy === `v:${k}`} onClick={() => verify(p)}>Kiểm tra kết nối</Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="flex items-center justify-between text-xs text-muted">
+          <span>{data ? `${data.profiles.length} profile · ${data.profiles.filter((p) => p.claudeExtension).length} profile có Claude in Chrome` : ""}</span>
+          <Button size="sm" variant="ghost" onClick={load}>Quét lại</Button>
         </div>
-      )}
+        <p className="rounded-xl bg-soft p-3 text-xs text-muted">Profile chưa có extension: bấm <b>Cài Claude in Chrome</b> → “Thêm vào Chrome” → đăng nhập tài khoản Claude trong extension → quay lại bấm <b>Kiểm tra kết nối</b>. “Kiểm tra kết nối” mở 1 tab nhận diện trong profile đó (tự đóng) và dùng một lượt nhỏ Claude.</p>
+      </div>
     </Modal>
   );
 }
