@@ -5,38 +5,54 @@ import { audit, bizSettings, bus, byId, insert, q, update, type Row } from "@dot
 import { AppError, logger, nowIso, uuidv7 } from "@dotaka/shared";
 
 /**
- * Bộ não (vault) — the company's second brain: plain Markdown files in folders (opens in Obsidian as-is), indexed
+ * Agentic Brain (vault) — the company's second brain: plain Markdown files in folders (opens in Obsidian as-is), indexed
  * here for search (FTS5, accent-insensitive), [[wikilinks]] + backlinks, the knowledge graph, and for the agents:
- * notes under 05 - Knowledge feed the same retrieval the Chat/Content agents already use.
+ * notes under "10. Tri thức" feed the same retrieval the Chat/Content agents already use.
  * The files are the source of truth; the index is rebuilt from them at any time (scan) and kept fresh by a watcher.
  */
 export const BRAIN_ROOT = resolve(process.env.BRAIN_ROOT ?? "data/brain");
 
-/** Folder layout of a new vault (the JAVIS-style structure the CEO asked for). */
+/** Folder names — the ONE place they are defined (TAKI's own Vietnamese layout). */
+export const F = {
+  overview: "1. Tổng quan", inbox: "2. Hộp thư", daily: "3. Nhật ký ngày", weekly: "4. Tổng kết tuần", monthly: "5. Tổng kết tháng",
+  plan: "6. Kế hoạch & nhắc việc", brand: "7. Thương hiệu", projects: "8. Dự án", marketing: "9. Cỗ máy marketing", knowledge: "10. Tri thức",
+  data: "11. Dữ liệu", lessons: "12. Bài học", ideas: "13. Ý tưởng & hội thoại", playbook: "14. Sổ tay quy trình", team: "15. Đội AI",
+  life: "16. Đời sống", archive: "17. Lưu trữ", files: "18. Tệp & hình ảnh",
+} as const;
+export const DASHBOARD_NOTE = `${F.overview}/Bảng điều hành.md`;
+/** Folder layout of a new Agentic Brain, with what each folder is for. */
 export const VAULT_FOLDERS: { name: string; about: string }[] = [
-  { name: "00 - Dashboard", about: "Bảng điều khiển: số liệu chính, việc cần quyết, lối tắt. Hệ thống tự cập nhật." },
-  { name: "01 - Daily Log", about: "Nhật ký từng ngày: hệ thống tự ghi những gì các agent đã làm; Sếp ghi thêm suy nghĩ." },
-  { name: "01 - Inbox", about: "Hộp ghi nhanh: mọi thứ kéo/dán vào nằm ở đây trước, phân loại sau." },
-  { name: "02 - Identity", about: "Danh tính doanh nghiệp: DNA thương hiệu, giá trị, giọng nói, định vị." },
-  { name: "02 - Weekly Log", about: "Tổng kết tuần (tự tạo mỗi đầu tuần từ nhật ký ngày)." },
-  { name: "03 - Monthly Log", about: "Tổng kết tháng (tự tạo đầu tháng)." },
-  { name: "03 - Work", about: "Dự án / chiến dịch: mỗi mục tiêu một thư mục, gồm brief, nghiên cứu, chiến lược." },
-  { name: "04 - Future Log", about: "Kế hoạch & nhắc việc tương lai (có hạn `due:` thì hệ thống nhắc đúng giờ)." },
-  { name: "04 - Marketing Engine", about: "Cỗ máy marketing: nội dung, video, quảng cáo, báo cáo do agent tạo." },
-  { name: "05 - Data Cache", about: "Dữ liệu thô / bảng số liệu lưu tạm cho phân tích." },
-  { name: "05 - Knowledge", about: "Tri thức sản phẩm, chính sách, FAQ — các agent dùng để trả lời và viết nội dung." },
-  { name: "06 - Life", about: "Đời sống cá nhân, sức khỏe, gia đình." },
-  { name: "07 - Learning", about: "Học tập & bài học hệ thống tự rút ra từ kết quả." },
-  { name: "08 - Thinking", about: "Suy nghĩ, ý tưởng, hội thoại với Ngân Nguyệt." },
-  { name: "09 - Archive", about: "Lưu trữ: những gì đã xong / không dùng nữa." },
-  { name: "10 - Wiki", about: "Wiki nội bộ: quy trình, skill, thuật ngữ — agent dùng làm tham chiếu." },
-  { name: "agents", about: "Hồ sơ từng AI agent: vai trò, quyền, việc gần đây (tự cập nhật)." },
-  { name: "assets", about: "Hình ảnh, logo, tài nguyên thương hiệu." },
-  { name: "attachments", about: "Tệp đính kèm kéo/dán vào bộ não." },
+  { name: F.overview, about: "Bảng điều hành: số liệu chính, việc cần quyết, lối tắt. Hệ thống tự cập nhật." },
+  { name: F.inbox, about: "Hộp thư: mọi thứ kéo/dán vào nằm ở đây trước, phân loại sau." },
+  { name: F.daily, about: "Nhật ký từng ngày: hệ thống tự ghi những gì các agent đã làm; Sếp ghi thêm suy nghĩ." },
+  { name: F.weekly, about: "Tổng kết tuần (tự tạo mỗi đầu tuần từ nhật ký ngày)." },
+  { name: F.monthly, about: "Tổng kết tháng (tự tạo đầu tháng)." },
+  { name: F.plan, about: "Kế hoạch & nhắc việc (ghi chú có hạn `due:` được nhắc đúng giờ)." },
+  { name: F.brand, about: "Thương hiệu: DNA, giá trị, giọng nói, định vị." },
+  { name: F.projects, about: "Dự án / chiến dịch: mỗi mục tiêu một thư mục, gồm brief, nghiên cứu, chiến lược." },
+  { name: F.marketing, about: "Cỗ máy marketing: nội dung, video, quảng cáo, báo cáo do agent tạo." },
+  { name: F.knowledge, about: "Tri thức sản phẩm, chính sách, FAQ — các agent dùng để trả lời khách và viết nội dung." },
+  { name: F.data, about: "Dữ liệu thô / bảng số liệu lưu cho phân tích." },
+  { name: F.lessons, about: "Bài học hệ thống rút ra từ kết quả + góp ý của Sếp." },
+  { name: F.ideas, about: "Ý tưởng, suy nghĩ, hội thoại với Ngân Nguyệt." },
+  { name: F.playbook, about: "Sổ tay quy trình: kỹ năng (skill) của từng nhân viên AI, thuật ngữ, cách làm." },
+  { name: F.team, about: "Đội AI: hồ sơ từng agent — vai trò, quyền, việc gần đây (tự cập nhật)." },
+  { name: F.life, about: "Đời sống cá nhân, sức khỏe, gia đình." },
+  { name: F.archive, about: "Lưu trữ: những gì đã xong / không dùng nữa." },
+  { name: F.files, about: "Tệp & hình ảnh kéo/dán vào, logo, tài nguyên thương hiệu." },
 ];
+/** Older layout (first version) → current names; applied once to existing vaults. */
+const LEGACY: [string, string][] = [
+  ["00 - Dashboard", F.overview], ["01 - Inbox", F.inbox], ["01 - Daily Log", F.daily], ["02 - Weekly Log", F.weekly], ["03 - Monthly Log", F.monthly],
+  ["04 - Future Log", F.plan], ["02 - Identity", F.brand], ["03 - Work", F.projects], ["04 - Marketing Engine", F.marketing], ["05 - Knowledge", F.knowledge],
+  ["05 - Data Cache", F.data], ["07 - Learning", F.lessons], ["08 - Thinking", F.ideas], ["10 - Wiki", F.playbook], ["agents", F.team],
+  ["06 - Life", F.life], ["09 - Archive", F.archive], ["attachments", F.files], ["assets", F.files],
+  [`${F.playbook}/Skills`, `${F.playbook}/Kỹ năng`], [`${F.lessons}/Bài học`, `${F.lessons}/Từ kết quả`],
+];
+const reEsc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Notes in this folder feed the agents' knowledge retrieval (also what Chat Agent may tell customers — so internal
- *  wiki / skills / identity notes are deliberately NOT included). */
-const KNOWLEDGE_RE = /^05 - Knowledge\//;
+ *  playbook / skills / brand notes are deliberately NOT included). */
+const KNOWLEDGE_RE = new RegExp(`^${reEsc(F.knowledge)}/`);
 const IGNORE_DIR = /^(\.|node_modules$)/;
 
 // ---------------- Vaults ----------------
@@ -97,22 +113,61 @@ export function openVaultFolder(bizId: string, id: string, rel = "") {
   p.unref();
 }
 
+const guideName = (folder: string) => `Giới thiệu ${folder.replace(/^\d+\.\s*/, "")}.md`;
+function writeObsidianConfig(root: string) {
+  const obs = join(root, ".obsidian");
+  mkdirSync(obs, { recursive: true });
+  writeFileSync(join(obs, "app.json"), JSON.stringify({ attachmentFolderPath: F.files, newFileLocation: "folder", newFileFolderPath: F.inbox, useMarkdownLinks: false }, null, 2));
+  writeFileSync(join(obs, "daily-notes.json"), JSON.stringify({ folder: F.daily, format: "YYYY-MM-DD" }, null, 2));
+}
 function scaffold(root: string) {
   for (const f of VAULT_FOLDERS) {
     mkdirSync(join(root, f.name), { recursive: true });
-    const readme = join(root, f.name, `${f.name.replace(/^\d+ - /, "")} — Hướng dẫn.md`);
-    if (!existsSync(readme) && !["assets", "attachments"].includes(f.name)) {
-      writeFileSync(readme, `---\ntype: guide\n---\n# ${f.name}\n\n${f.about}\n\nVề trang chính: [[Dashboard]]\n`);
+    const readme = join(root, f.name, guideName(f.name));
+    if (!existsSync(readme) && f.name !== F.files) {
+      writeFileSync(readme, `---\ntype: guide\n---\n# ${f.name.replace(/^\d+\.\s*/, "")}\n\n${f.about}\n\nVề [[Bảng điều hành]]\n`);
     }
   }
-  const welcome = join(root, "00 - Dashboard", "Dashboard.md");
-  if (!existsSync(welcome)) writeFileSync(welcome, `---\ntype: dashboard\n---\n# Dashboard\n\nBộ não của doanh nghiệp. Hệ thống tự cập nhật phần giữa hai dấu \`taki:auto\`; Sếp viết thêm bất cứ đâu.\n\n<!-- taki:auto -->\n_(đang tạo…)_\n<!-- /taki:auto -->\n`);
-  const obs = join(root, ".obsidian");
-  if (!existsSync(obs)) {
-    mkdirSync(obs, { recursive: true });
-    writeFileSync(join(obs, "app.json"), JSON.stringify({ attachmentFolderPath: "attachments", newFileLocation: "folder", newFileFolderPath: "01 - Inbox", useMarkdownLinks: false }, null, 2));
-    writeFileSync(join(obs, "daily-notes.json"), JSON.stringify({ folder: "01 - Daily Log", format: "YYYY-MM-DD" }, null, 2));
+  const welcome = join(root, DASHBOARD_NOTE);
+  if (!existsSync(welcome)) writeFileSync(welcome, `---\ntype: dashboard\n---\n# Bảng điều hành\n\nAgentic Brain — trí nhớ của doanh nghiệp. Hệ thống tự cập nhật phần giữa hai dấu \`taki:auto\`; Sếp viết thêm bất cứ đâu.\n\n<!-- taki:auto -->\n_(đang tạo…)_\n<!-- /taki:auto -->\n`);
+  if (!existsSync(join(root, ".obsidian", "app.json"))) writeObsidianConfig(root);
+}
+
+/** One-time move from the first folder layout (00 - Dashboard …) to the current one — notes and their ids are kept. */
+function migrateLayout(v: Row) {
+  if (!LEGACY.some(([from]) => existsSync(join(v.path, from)))) return false;
+  const trash = join(v.path, ".trash", `layout-v1-${Date.now()}`);
+  const move = (from: string, to: string) => {
+    const a = join(v.path, from), b = join(v.path, to);
+    if (!existsSync(a)) return;
+    if (!existsSync(b)) { mkdirSync(dirname(b), { recursive: true }); renameSync(a, b); return; }
+    for (const e of readdirSync(a)) { // merge into an existing folder
+      const src = join(a, e);
+      let dst = join(b, e);
+      // Same system-generated log/dashboard in both places → the current one wins, the old copy goes to trash
+      if (existsSync(dst) && e.endsWith(".md") && /^---\ntype: (daily|weekly|monthly|dashboard|guide|agent)\n/.test(readFileSync(src, "utf8"))) { renameSync(src, join(trash, `${from.replace(/\//g, "_")}-${e}`)); continue; }
+      for (let i = 2; existsSync(dst); i++) dst = join(b, e.replace(/(\.[^.]+)?$/, ` ${i}$1`));
+      renameSync(src, dst);
+    }
+    try { readdirSync(a).length || renameSync(a, join(trash, from.replace(/\//g, "_"))); } catch { /* keep */ }
+  };
+  mkdirSync(trash, { recursive: true });
+  for (const [from, to] of LEGACY) move(from, to);
+  // Generated guides / dashboard of the old layout → trash (new ones are created below; nothing the CEO wrote is touched)
+  for (const f of VAULT_FOLDERS) {
+    const dir = join(v.path, f.name);
+    if (!existsSync(dir)) continue;
+    for (const e of readdirSync(dir)) {
+      if (!/ — Hướng dẫn\.md$/.test(e) && !(f.name === F.overview && e === "Dashboard.md")) continue;
+      const text = readFileSync(join(dir, e), "utf8");
+      if (/^---\ntype: (guide|dashboard)\n---/.test(text)) renameSync(join(dir, e), join(trash, e));
+    }
   }
+  scaffold(v.path);
+  writeObsidianConfig(v.path);
+  if (/^Bộ não\s/.test(v.name)) update("brain_vault", v.id, { name: v.name.replace(/^Bộ não\s/, "Agentic Brain · ") });
+  logger.info("brain.layout_migrated", { vault: v.id });
+  return true;
 }
 
 // ---------------- Safe file access ----------------
@@ -248,7 +303,9 @@ export function watchVault(vaultId: string) {
   } catch (e) { logger.warn("brain.watch_failed", { path: v.path, error: String(e) }); }
 }
 export function startBrain() {
-  for (const v of q.all<Row>("SELECT id FROM brain_vault")) { try { scanVault(v.id); watchVault(v.id); } catch (e) { logger.warn("brain.start_failed", { error: String(e) }); } }
+  for (const v of q.all<Row>("SELECT * FROM brain_vault")) {
+    try { if (v.managed && existsSync(v.path)) migrateLayout(v); scanVault(v.id); watchVault(v.id); } catch (e) { logger.warn("brain.start_failed", { error: String(e) }); }
+  }
 }
 
 // ---------------- Notes ----------------
@@ -276,7 +333,7 @@ export function freePath(v: Row, folder: string, title: string) {
   return rel;
 }
 export function createNote(v: Row, p: { folder?: string; title: string; content?: string; meta?: Row }) {
-  const rel = freePath(v, p.folder ?? "01 - Inbox", p.title);
+  const rel = freePath(v, p.folder ?? F.inbox, p.title);
   const body = p.content ?? "";
   const text = `${stringifyFrontmatter({ created: new Date().toISOString().slice(0, 10), ...(p.meta ?? {}) })}${/^#\s/m.test(body) ? "" : `# ${p.title}\n\n`}${body}\n`;
   return writeNoteFile(v, rel, text);
@@ -337,9 +394,9 @@ export function createFolder(v: Row, rel: string) {
 export function saveAttachment(v: Row, name: string, data: Buffer) {
   if (data.length > 30 * 1024 * 1024) throw new AppError("TOO_BIG", "Tệp tối đa 30MB");
   const clean = safeName(basename(name).replace(/\.[^.]+$/, "")) + (extname(name).toLowerCase().replace(/[^.a-z0-9]/g, "") || "");
-  let rel = `attachments/${clean}`;
-  for (let i = 2; existsSync(safePath(v, rel)); i++) rel = `attachments/${clean.replace(/(\.[^.]+)?$/, ` ${i}$1`)}`;
-  mkdirSync(join(v.path, "attachments"), { recursive: true });
+  let rel = `${F.files}/${clean}`;
+  for (let i = 2; existsSync(safePath(v, rel)); i++) rel = `${F.files}/${clean.replace(/(\.[^.]+)?$/, ` ${i}$1`)}`;
+  mkdirSync(join(v.path, F.files), { recursive: true });
   writeFileSync(safePath(v, rel), data);
   return rel;
 }
@@ -414,24 +471,23 @@ export function noteLinks(v: Row, rel: string) {
   return { links: out, backlinks };
 }
 
+/** Map regions ("vùng trí nhớ") shown on the graph — by note `type:` first, else by top folder. */
 const TYPE_CLUSTER: Record<string, string> = {
-  project: "PROJECT", goal: "PROJECT", content: "MARKETING & BUSINESS", video: "MARKETING & BUSINESS", report: "MARKETING & BUSINESS", ads: "MARKETING & BUSINESS",
-  conversation: "CONVERSATIONS", wiki: "WIKI", skill: "WIKI", fact: "FACTS", knowledge: "FACTS", reference: "REFERENCES", agent: "AGENTS",
-  daily: "NHẬT KÝ", weekly: "NHẬT KÝ", monthly: "NHẬT KÝ", reminder: "KẾ HOẠCH", identity: "IDENTITY", lesson: "LEARNING", dashboard: "DASHBOARD",
+  project: "Dự án", goal: "Dự án", content: "Marketing", video: "Marketing", report: "Marketing", ads: "Marketing",
+  conversation: "Hội thoại", wiki: "Quy trình", skill: "Quy trình", fact: "Tri thức", knowledge: "Tri thức", reference: "Tham khảo", agent: "Đội AI",
+  daily: "Nhật ký", weekly: "Nhật ký", monthly: "Nhật ký", reminder: "Kế hoạch", identity: "Thương hiệu", lesson: "Bài học", dashboard: "Tổng quan",
 };
-/** Notes without a known `type:` take the cluster of their top folder (guides included). */
 const FOLDER_CLUSTER: Record<string, string> = {
-  "00 - Dashboard": "DASHBOARD", "01 - Daily Log": "NHẬT KÝ", "02 - Weekly Log": "NHẬT KÝ", "03 - Monthly Log": "NHẬT KÝ", "01 - Inbox": "INBOX",
-  "02 - Identity": "IDENTITY", "03 - Work": "PROJECT", "04 - Future Log": "KẾ HOẠCH", "04 - Marketing Engine": "MARKETING & BUSINESS",
-  "05 - Data Cache": "DATA", "05 - Knowledge": "FACTS", "06 - Life": "LIFE", "07 - Learning": "LEARNING", "08 - Thinking": "THINKING",
-  "09 - Archive": "ARCHIVE", "10 - Wiki": "WIKI", agents: "AGENTS", assets: "ASSETS", attachments: "ASSETS",
+  [F.overview]: "Tổng quan", [F.inbox]: "Hộp thư", [F.daily]: "Nhật ký", [F.weekly]: "Nhật ký", [F.monthly]: "Nhật ký", [F.plan]: "Kế hoạch",
+  [F.brand]: "Thương hiệu", [F.projects]: "Dự án", [F.marketing]: "Marketing", [F.knowledge]: "Tri thức", [F.data]: "Dữ liệu", [F.lessons]: "Bài học",
+  [F.ideas]: "Ý tưởng", [F.playbook]: "Quy trình", [F.team]: "Đội AI", [F.life]: "Đời sống", [F.archive]: "Lưu trữ", [F.files]: "Tệp",
 };
 export function clusterOf(r: Row) {
   const t = String(r.meta?.type ?? "").toLowerCase();
   if (TYPE_CLUSTER[t]) return TYPE_CLUSTER[t];
-  if (!String(r.path).includes("/")) return "KHÁC";
+  if (!String(r.path).includes("/")) return "Khác";
   const top = String(r.path).split("/")[0];
-  return FOLDER_CLUSTER[top] ?? top.replace(/^\d+\s*-\s*/, "").toUpperCase();
+  return FOLDER_CLUSTER[top] ?? top.replace(/^\d+\.\s*/, "");
 }
 export function vaultGraph(v: Row) {
   const { rows, resolveLink } = resolver(v);

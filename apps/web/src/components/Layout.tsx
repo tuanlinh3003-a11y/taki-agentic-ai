@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  Activity, Bell, BookOpen, Brain, Clapperboard, Columns2, CreditCard, FileClock, FileText, Home, Library, Link2, Bot, CalendarDays, ChartLine, CheckCircle2,
+  Activity, Bell, BookOpen, BrainCircuit, Clapperboard, Columns2, CreditCard, FileClock, FileText, Home, Library, Link2, Bot, CalendarDays, ChartLine, CheckCircle2,
   ChevronDown, LayoutTemplate, Megaphone, Menu, MessageCircle, MessagesSquare, MonitorCog, Moon, Network, Octagon, Play, Rocket, Send, Settings, SlidersHorizontal, Sparkles, Sun, Target, X,
 } from "lucide-react";
 import { api, useApi, useEvents } from "../lib/api";
@@ -12,7 +12,7 @@ type NavItem = { to: string; label: string; icon: any; badge?: "unread" | "appro
 const NAV: { title: string; items: NavItem[] }[] = [
   { title: "Điều hành", items: [
     { to: "/", label: "Tổng quan", icon: Home },
-    { to: "/brain", label: "Bộ não", icon: Brain },
+    { to: "/brain", label: "Agentic Brain", icon: BrainCircuit },
     { to: "/orchestra", label: "Bản đồ điều phối", icon: Network },
     { to: "/dna", label: "Mục tiêu & DNA", icon: Target },
     { to: "/plan", label: "Kế hoạch", icon: CalendarDays },

@@ -1,20 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  Brain as BrainIcon, CalendarDays, ChevronDown, ChevronRight, Clock, Eye, EyeOff, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, History, Loader2,
-  Mic, MicOff, PanelLeftClose, PanelLeftOpen, Paperclip, Plus, RefreshCw, Search, Send, Trash2, X,
+  Bot, BrainCircuit, CalendarDays, ChevronDown, ChevronRight, Clock, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, Layers, Loader2,
+  Mic, MicOff, PanelLeftClose, PanelLeftOpen, Paperclip, Plus, RefreshCw, Search, SendHorizontal, Sparkles, Tag, Trash2, Workflow, X,
 } from "lucide-react";
 import { api, useApi, useEvents } from "../lib/api";
 import { timeAgo } from "../lib/format";
 import { useSpeech } from "../lib/speech";
-import { BrainGraph } from "../components/BrainGraph";
+import { BrainGraph, clusterColor } from "../components/BrainGraph";
 import { NoteView } from "../components/NoteView";
 import { Button, Modal, cx, inputCls, useToast } from "../components/ui";
 
 /**
- * Bộ não — the company's second brain (Markdown vault, Obsidian-compatible).
- * Left: vault tree + search (by name / content). Centre: knowledge graph, or the open note.
- * Bottom: talk to Ngân Nguyệt (voice, attach, drag & drop files straight into the brain).
+ * Agentic Brain — the company's memory (Markdown vault, Obsidian-compatible), in TAKI's own look:
+ * left = "Ngăn trí nhớ" (folders + search), centre = "Mạng trí nhớ" (graph) or the open note, right = "Vùng trí nhớ"
+ * (regions with share bars, click to highlight), bottom = command bar to Ngân Nguyệt (voice, attach, drop files).
  */
 const store = { get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* storage unavailable */ } } };
 const ask = (text: string) => window.dispatchEvent(new CustomEvent("nguyet:ask", { detail: text }));
@@ -31,6 +31,7 @@ export function Brain() {
   const [open, setOpen] = useState<string | null>(params.get("note"));
   const [side, setSide] = useState(store.get("brain.side") !== "0");
   const [labels, setLabels] = useState(true);
+  const [focus, setFocus] = useState<string | null>(null);
   const [recentOnly, setRecentOnly] = useState(false);
   const [history, setHistory] = useState(false);
   const [newVault, setNewVault] = useState(false);
@@ -73,7 +74,7 @@ export function Brain() {
     if (!linkParam || !graph.data) return;
     const hit = resolver(linkParam);
     if (hit) setOpen(hit);
-    else toast(`Chưa có ghi chú "${linkParam}" trong bộ não này`, "err");
+    else toast(`Chưa có ghi chú "${linkParam}" trong Agentic Brain`, "err");
     setParams(hit ? { note: hit } : {}, { replace: true });
   }, [linkParam, graph.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -83,76 +84,105 @@ export function Brain() {
     for (const f of Array.from(files).slice(0, 20)) {
       try { const r = await api.post(`/v1/brain/${vault}/upload`, { name: f.name, data: await readFile(f), folder }); last = r.path; } catch (e: any) { toast(`${f.name}: ${e.message}`, "err"); }
     }
-    if (last) { toast("Đã lưu vào Bộ não (01 - Inbox)"); setOpen(last); }
+    if (last) { toast("Đã lưu vào Agentic Brain · Hộp thư"); setOpen(last); }
   };
   const daily = async () => { if (!vault) return; try { const r = await api.post(`brain/${vault}/daily`); setOpen(r.path); } catch (e: any) { toast(e.message, "err"); } };
-  const rescan = async () => { if (!vault) return; setSyncing(true); try { const r = await api.post(`brain/vaults/${vault}/rescan`); toast(`Đã quét lại: +${r.added} mới · ${r.changed} sửa · ${r.removed} gỡ`); } catch (e: any) { toast(e.message, "err"); } finally { setSyncing(false); } };
+  const rescan = async () => { if (!vault) return; setSyncing(true); try { const r = await api.post(`brain/vaults/${vault}/rescan`); toast(`Đã đồng bộ: +${r.added} mới · ${r.changed} cập nhật · ${r.removed} gỡ`); } catch (e: any) { toast(e.message, "err"); } finally { setSyncing(false); } };
 
   const nodes = graph.data?.nodes ?? [];
-  const status = syncing ? "ĐANG ĐỒNG BỘ" : nodes.length ? "SẴN SÀNG" : "BỘ NÃO TRỐNG";
+  const clusters: any[] = graph.data?.clusters ?? [];
+  // Fill exactly the space under the app header (long side lists scroll instead of stretching the page)
+  const root = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const fit = () => { if (root.current) setHeight(Math.max(420, window.innerHeight - root.current.getBoundingClientRect().top)); };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
 
   return (
-    <div className="-m-4 flex h-[calc(100%+2rem)] flex-col bg-page md:-m-6 md:h-[calc(100%+3rem)]"
+    <div ref={root} style={height ? { height } : undefined} className="-m-4 flex flex-col overflow-hidden bg-page md:-m-6"
       onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setDropping(true); } }}
       onDragLeave={(e) => { if (e.currentTarget === e.target) setDropping(false); }}
       onDrop={(e) => { e.preventDefault(); setDropping(false); if (e.dataTransfer.files.length) void upload(e.dataTransfer.files); }}>
-      {/* Top bar */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-line bg-card px-4 py-2.5">
-        <BrainIcon className="h-5 w-5 text-orange-500" />
-        <div className="relative">
+      {/* Header */}
+      <div className="flex flex-wrap items-center gap-3 border-b border-line bg-gradient-to-r from-indigo-500/[0.06] via-violet-500/[0.06] to-fuchsia-500/[0.06] px-4 py-3">
+        <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white shadow-sm"><BrainCircuit className="h-5 w-5" /></span>
+        <div className="leading-tight">
+          <p className="bg-gradient-to-r from-indigo-600 to-fuchsia-600 bg-clip-text text-lg font-extrabold text-transparent">Agentic Brain</p>
+          <p className="text-[11px] text-muted">Trí nhớ chung của Sếp và đội AI</p>
+        </div>
+        <div className="relative ml-2">
           <select value={vault ?? ""} onChange={async (e) => { await api.post(`brain/vaults/${e.target.value}/activate`); setOpen(null); vaults.reload(); }}
-            className="appearance-none rounded-xl border border-line bg-card py-1.5 pl-3 pr-8 text-sm font-semibold text-ink">
-            {(vaults.data?.vaults ?? []).map((v: any) => <option key={v.id} value={v.id}>{v.name} · {v.notes}</option>)}
+            className="appearance-none rounded-full border border-violet-300/60 bg-card py-1.5 pl-3.5 pr-8 text-sm font-medium text-ink dark:border-violet-500/30" title="Chọn kho trí nhớ">
+            {(vaults.data?.vaults ?? []).map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
           <ChevronDown className="pointer-events-none absolute right-2.5 top-2.5 h-4 w-4 text-muted" />
         </div>
-        <button onClick={() => setNewVault(true)} className="rounded-lg border border-line p-1.5 text-muted hover:bg-soft" title="Thêm bộ não (tạo mới hoặc nối thư mục Obsidian có sẵn)"><Plus className="h-4 w-4" /></button>
-        <button onClick={() => setRemoveVault(true)} className="rounded-lg border border-line p-1.5 text-muted hover:bg-soft" title="Gỡ bộ não khỏi hệ thống (giữ nguyên file)"><Trash2 className="h-4 w-4" /></button>
-        <button onClick={() => vault && api.post(`brain/vaults/${vault}/open`)} className="rounded-lg border border-line p-1.5 text-muted hover:bg-soft" title="Mở thư mục trong Finder / Obsidian"><FolderOpen className="h-4 w-4" /></button>
-        <span className="text-sm text-muted">{stats.data ? `${stats.data.notes} note · ${stats.data.links} kết nối` : "…"}</span>
+        <div className="flex items-center rounded-full border border-line bg-card">
+          <button onClick={() => setNewVault(true)} className="rounded-l-full px-2.5 py-1.5 text-muted hover:bg-soft" title="Thêm kho trí nhớ (tạo mới hoặc nối thư mục Obsidian có sẵn)"><Plus className="h-4 w-4" /></button>
+          <button onClick={() => vault && api.post(`brain/vaults/${vault}/open`)} className="border-x border-line px-2.5 py-1.5 text-muted hover:bg-soft" title="Mở kho trong Finder / Obsidian"><FolderOpen className="h-4 w-4" /></button>
+          <button onClick={() => setRemoveVault(true)} className="rounded-r-full px-2.5 py-1.5 text-muted hover:bg-soft" title="Gỡ kho khỏi hệ thống (giữ nguyên file)"><Trash2 className="h-4 w-4" /></button>
+        </div>
+        {stats.data && (
+          <div className="hidden items-center gap-1.5 lg:flex">
+            {[[FileText, `${stats.data.notes} ghi chú`], [Layers, `${stats.data.links} liên kết`], [Bot, `${stats.data.agents} trợ lý AI`], [Sparkles, `${stats.data.skills} kỹ năng`], [Workflow, `${stats.data.workflows} quy trình tự động`]].map(([I, t]: any) => (
+              <span key={t} className="flex items-center gap-1 rounded-full bg-card px-2.5 py-1 text-xs text-muted ring-1 ring-line"><I className="h-3.5 w-3.5 text-violet-500" />{t}</span>
+            ))}
+          </div>
+        )}
         <div className="flex-1" />
-        <Button size="sm" icon={CalendarDays} onClick={daily}>Nhật ký hôm nay</Button>
-        <button onClick={rescan} className="rounded-lg border border-line p-1.5 text-muted hover:bg-soft" title="Quét lại & đồng bộ"><RefreshCw className={cx("h-4 w-4", syncing && "animate-spin")} /></button>
-        <button onClick={() => setHistory((h) => !h)} className={cx("flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm font-medium", history ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300" : "border-line text-ink hover:bg-soft")}><History className="h-4 w-4" />Lịch sử</button>
+        <button onClick={daily} className="flex items-center gap-1.5 rounded-full bg-violet-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-700"><CalendarDays className="h-4 w-4" />Hôm nay</button>
+        <button onClick={rescan} className="flex items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-sm text-ink hover:bg-soft" title="Đồng bộ lại với file trên máy"><RefreshCw className={cx("h-4 w-4", syncing && "animate-spin")} />Đồng bộ</button>
+        <button onClick={() => setHistory((h) => !h)} className={cx("flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm", history ? "border-violet-500 bg-violet-500/10 text-violet-700 dark:text-violet-300" : "border-line bg-card text-ink hover:bg-soft")}><Clock className="h-4 w-4" />Vừa cập nhật</button>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        {/* Vault panel */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {side ? (
-          <div className="flex w-72 shrink-0 flex-col border-r border-line bg-card">
+          <div className="flex min-h-0 w-72 shrink-0 flex-col border-r border-line bg-card">
             <VaultPanel vault={vault} tree={tree.data} openPath={open} onOpen={setOpen} onNewNote={(folder) => setNewNote({ folder })} onNewFolder={() => setNewFolder(true)} onRescan={rescan} onCollapse={() => setSide(false)} />
           </div>
         ) : (
-          <button onClick={() => setSide(true)} className="m-2 h-9 self-start rounded-lg border border-line bg-card p-2 text-muted hover:bg-soft" title="Mở cây thư mục"><PanelLeftOpen className="h-4 w-4" /></button>
+          <button onClick={() => setSide(true)} className="m-2 h-9 self-start rounded-lg border border-line bg-card p-2 text-muted hover:bg-soft" title="Mở ngăn trí nhớ"><PanelLeftOpen className="h-4 w-4" /></button>
         )}
 
-        {/* Centre */}
-        <div className="relative min-w-0 flex-1 overflow-hidden" style={{ background: "radial-gradient(ellipse at center, rgba(167,139,250,0.10), transparent 65%)" }}>
+        {/* Centre: memory network or the open note */}
+        <div className="relative min-w-0 flex-1 overflow-hidden" style={{ backgroundImage: "radial-gradient(circle, rgba(139,92,246,0.10) 1px, transparent 1px)", backgroundSize: "22px 22px" }}>
           {open && vault ? (
             <div className="absolute inset-0 bg-card"><NoteView vault={vault} path={open} onOpen={setOpen} onClose={() => setOpen(null)} onAsk={ask} resolve={resolver} /></div>
           ) : !graph.data ? (
             <div className="grid h-full place-items-center"><Loader2 className="h-6 w-6 animate-spin text-muted" /></div>
           ) : (
             <>
-              <BrainGraph nodes={nodes} links={graph.data.links} clusters={graph.data.clusters} onOpen={setOpen} showLabels={labels} recentHours={recentOnly ? 48 : null} status={status} />
-              <div className="absolute right-3 top-3 flex flex-col gap-2">
-                <button onClick={() => setLabels((v) => !v)} className="grid h-10 w-10 place-items-center rounded-xl border border-line bg-card shadow-sm hover:bg-soft" title={labels ? "Ẩn nhãn cụm" : "Hiện nhãn cụm"}>{labels ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}</button>
-                <button onClick={() => setRecentOnly((v) => !v)} className={cx("grid h-10 w-10 place-items-center rounded-xl border shadow-sm", recentOnly ? "border-orange-400 bg-orange-500/10 text-orange-600" : "border-line bg-card hover:bg-soft")} title="Làm nổi ghi chú thay đổi trong 48 giờ"><Clock className="h-4 w-4" /></button>
+              <BrainGraph nodes={nodes} links={graph.data.links} clusters={clusters} onOpen={setOpen} showLabels={labels} recentHours={recentOnly ? 48 : null} focus={focus} />
+              <div className="absolute left-3 top-3 flex items-center gap-1 rounded-full border border-line bg-card/95 p-1 text-xs shadow-sm">
+                <span className="px-2 font-semibold text-ink">Mạng trí nhớ</span>
+                <button onClick={() => setLabels((v) => !v)} className={cx("flex items-center gap-1 rounded-full px-2.5 py-1", labels ? "bg-violet-600 text-white" : "text-muted hover:bg-soft")}><Tag className="h-3.5 w-3.5" />Tên vùng</button>
+                <button onClick={() => setRecentOnly((v) => !v)} className={cx("flex items-center gap-1 rounded-full px-2.5 py-1", recentOnly ? "bg-violet-600 text-white" : "text-muted hover:bg-soft")}><Clock className="h-3.5 w-3.5" />Mới 48 giờ</button>
               </div>
-              {stats.data && (
-                <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 divide-x divide-line rounded-2xl border border-line bg-card/95 px-2 py-3 shadow-lg">
-                  {[["AGENTS", stats.data.agents], ["SKILLS", stats.data.skills], ["WORKFLOWS", stats.data.workflows]].map(([l, n]) => (
-                    <div key={l} className="px-6 text-center"><p className="text-2xl font-bold tabular-nums text-ink">{n}</p><p className="text-[11px] tracking-[0.2em] text-muted">{l}</p></div>
-                  ))}
-                </div>
-              )}
-              {!nodes.length && <p className="absolute inset-x-0 top-1/3 text-center text-sm text-muted">Bộ não đang trống — kéo file vào đây, tạo ghi chú mới, hoặc bấm "Nhật ký hôm nay".</p>}
+              <p className="pointer-events-none absolute bottom-3 right-3 text-[11px] text-muted">Cuộn để phóng to · kéo để di chuyển · nhấp đúp để về giữa</p>
+              {!nodes.length && <p className="absolute inset-x-0 top-1/3 text-center text-sm text-muted">Agentic Brain đang trống — thả file vào đây, tạo ghi chú mới, hoặc bấm "Hôm nay".</p>}
             </>
           )}
-          {dropping && <div className="pointer-events-none absolute inset-3 grid place-items-center rounded-2xl border-2 border-dashed border-violet-400 bg-violet-500/10 text-lg font-semibold text-violet-700 dark:text-violet-200">Thả file để lưu vào Bộ não</div>}
+          {dropping && <div className="pointer-events-none absolute inset-3 grid place-items-center rounded-2xl border-2 border-dashed border-violet-400 bg-violet-500/10 text-lg font-semibold text-violet-700 dark:text-violet-200">Thả file để lưu vào Hộp thư của Agentic Brain</div>}
         </div>
 
-        {history && vault && <HistoryDrawer vault={vault} onOpen={setOpen} onClose={() => setHistory(false)} />}
+        {/* Right: memory regions (or recent changes) */}
+        {history && vault ? <HistoryDrawer vault={vault} onOpen={setOpen} onClose={() => setHistory(false)} /> : !open && clusters.length > 0 && (
+          <div className="hidden min-h-0 w-64 shrink-0 flex-col border-l border-line bg-card xl:flex">
+            <div className="px-4 pb-2 pt-4"><p className="text-sm font-bold text-ink">Vùng trí nhớ</p><p className="text-[11px] text-muted">Bấm một vùng để làm nổi trên mạng</p></div>
+            <div className="flex-1 space-y-1 overflow-y-auto px-2 pb-3 scroll-thin">
+              {clusters.map((c) => (
+                <button key={c.key} onClick={() => setFocus((f) => (f === c.key ? null : c.key))} className={cx("block w-full rounded-xl px-2.5 py-2 text-left", focus === c.key ? "bg-violet-500/10 ring-1 ring-violet-400/50" : "hover:bg-soft")}>
+                  <div className="flex items-center gap-2 text-[13px]"><span className="h-2.5 w-2.5 rounded-full" style={{ background: clusterColor(c.key) }} /><span className="flex-1 font-medium text-ink">{c.key}</span><span className="tabular-nums text-muted">{c.count}</span></div>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-soft"><div className="h-full rounded-full" style={{ width: `${Math.max(3, c.pct)}%`, background: clusterColor(c.key) }} /></div>
+                  <p className="mt-0.5 text-right text-[10px] text-muted">{c.pct}% trí nhớ</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <AskBar vault={vault} openPath={open} onUpload={upload} />
@@ -160,8 +190,8 @@ export function Brain() {
       <NewVaultModal open={newVault} onClose={() => setNewVault(false)} onDone={() => { setNewVault(false); setOpen(null); vaults.reload(); }} />
       <NewNoteModal vault={vault} folders={folders} init={newNote} onClose={() => setNewNote(null)} onDone={(p) => { setNewNote(null); setOpen(p); }} />
       <NewFolderModal vault={vault} open={newFolder} onClose={() => setNewFolder(false)} onDone={() => { setNewFolder(false); tree.reload(); }} />
-      <Modal open={removeVault} onClose={() => setRemoveVault(false)} title={`Gỡ "${cur?.name ?? ""}" khỏi hệ thống?`} footer={<><Button variant="ghost" onClick={() => setRemoveVault(false)}>Hủy</Button><Button variant="danger" onClick={async () => { try { await api.del(`brain/vaults/${vault}`); toast("Đã gỡ — toàn bộ file vẫn còn nguyên trên máy"); setRemoveVault(false); setOpen(null); vaults.reload(); } catch (e: any) { toast(e.message, "err"); } }}>Gỡ khỏi hệ thống</Button></>}>
-        <p className="text-sm">Hệ thống ngừng đọc/ghi bộ não này. <b>Không xóa file nào</b>: thư mục <code className="break-all text-xs">{cur?.path}</code> vẫn còn, có thể nối lại bất cứ lúc nào bằng nút +.</p>
+      <Modal open={removeVault} onClose={() => setRemoveVault(false)} title={`Gỡ kho "${cur?.name ?? ""}" khỏi hệ thống?`} footer={<><Button variant="ghost" onClick={() => setRemoveVault(false)}>Hủy</Button><Button variant="danger" onClick={async () => { try { await api.del(`brain/vaults/${vault}`); toast("Đã gỡ — toàn bộ file vẫn còn nguyên trên máy"); setRemoveVault(false); setOpen(null); vaults.reload(); } catch (e: any) { toast(e.message, "err"); } }}>Gỡ khỏi hệ thống</Button></>}>
+        <p className="text-sm">Hệ thống ngừng đọc/ghi kho trí nhớ này. <b>Không xóa file nào</b>: thư mục <code className="break-all text-xs">{cur?.path}</code> vẫn còn, có thể nối lại bất cứ lúc nào bằng nút +.</p>
       </Modal>
     </div>
   );
@@ -198,7 +228,7 @@ function VaultPanel({ vault, tree, openPath, onOpen, onNewNote, onNewFolder, onR
       <div className="group flex items-center rounded-lg hover:bg-soft" style={{ paddingLeft: depth * 12 }}>
         <button onClick={() => toggle(n.path)} className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pl-1 text-left text-[13.5px] text-ink">
           {expanded.has(n.path) ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted" />}
-          {expanded.has(n.path) ? <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" /> : <Folder className="h-4 w-4 shrink-0 text-muted" />}
+          {expanded.has(n.path) ? <FolderOpen className="h-4 w-4 shrink-0 text-violet-500" /> : <Folder className="h-4 w-4 shrink-0 text-violet-400/80" />}
           <span className="truncate">{n.name}</span>
           {n.count > 0 && <span className="ml-auto pr-1 text-[10px] text-muted">{n.count}</span>}
         </button>
@@ -208,7 +238,7 @@ function VaultPanel({ vault, tree, openPath, onOpen, onNewNote, onNewFolder, onR
     </div>
   ) : (
     <button onClick={() => onOpen(n.path)} style={{ paddingLeft: depth * 12 + 22 }} title={n.title}
-      className={cx("flex w-full items-center gap-1.5 rounded-lg py-1 pr-2 text-left text-[13px]", openPath === n.path ? "bg-orange-500/10 font-medium text-orange-700 dark:text-orange-300" : "text-ink/80 hover:bg-soft")}>
+      className={cx("flex w-full items-center gap-1.5 rounded-lg py-1 pr-2 text-left text-[13px]", openPath === n.path ? "bg-violet-500/10 font-medium text-violet-700 dark:text-violet-300" : "text-ink/80 hover:bg-soft")}>
       <FileText className="h-3.5 w-3.5 shrink-0 text-muted" /><span className="truncate">{n.name}</span>
     </button>
   );
@@ -216,16 +246,16 @@ function VaultPanel({ vault, tree, openPath, onOpen, onNewNote, onNewFolder, onR
   return (
     <>
       <div className="flex items-center gap-1 px-3 pb-2 pt-3">
-        <p className="flex-1 text-xs font-semibold tracking-[0.2em] text-muted">VAULT</p>
-        <button onClick={() => onNewNote("01 - Inbox")} className="rounded-lg border border-line p-1.5 text-muted hover:bg-soft" title="Ghi chú mới"><Plus className="h-3.5 w-3.5" /></button>
+        <p className="flex-1 text-sm font-bold text-ink">Ngăn trí nhớ</p>
+        <button onClick={() => onNewNote("2. Hộp thư")} className="rounded-lg border border-line p-1.5 text-muted hover:bg-soft" title="Ghi chú mới"><Plus className="h-3.5 w-3.5" /></button>
         <button onClick={onNewFolder} className="rounded-lg border border-line p-1.5 text-muted hover:bg-soft" title="Thư mục mới"><FolderPlus className="h-3.5 w-3.5" /></button>
         <button onClick={onRescan} className="rounded-lg border border-line p-1.5 text-muted hover:bg-soft" title="Quét lại"><RefreshCw className="h-3.5 w-3.5" /></button>
         <button onClick={onCollapse} className="rounded-lg border border-line p-1.5 text-muted hover:bg-soft" title="Thu gọn"><PanelLeftClose className="h-3.5 w-3.5" /></button>
       </div>
       <div className="px-3">
-        <div className="relative"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm note…" className={cx(inputCls, "pl-8")} />{q && <button onClick={() => setQ("")} className="absolute right-2 top-2.5 text-muted"><X className="h-4 w-4" /></button>}</div>
-        <div className="mt-2 flex gap-1.5">
-          {([["name", "Tên"], ["content", "Nội dung"]] as const).map(([k, l]) => <button key={k} onClick={() => setMode(k)} className={cx("rounded-full border px-3 py-0.5 text-xs", mode === k ? "border-orange-300 bg-orange-500/10 text-orange-700 dark:text-orange-300" : "border-line text-muted")}>{l}</button>)}
+        <div className="relative"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm ghi chú (gõ không dấu cũng được)…" className={cx(inputCls, "pl-8")} />{q && <button onClick={() => setQ("")} className="absolute right-2 top-2.5 text-muted"><X className="h-4 w-4" /></button>}</div>
+        <div className="mt-2 grid grid-cols-2 rounded-lg bg-soft p-0.5 text-xs">
+          {([["name", "Theo tiêu đề"], ["content", "Toàn văn"]] as const).map(([k, l]) => <button key={k} onClick={() => setMode(k)} className={cx("rounded-md py-1", mode === k ? "bg-card font-semibold text-violet-700 shadow-sm dark:text-violet-300" : "text-muted")}>{l}</button>)}
         </div>
       </div>
       <div className="mt-2 flex-1 overflow-y-auto px-2 pb-3 scroll-thin">
@@ -246,8 +276,8 @@ function VaultPanel({ vault, tree, openPath, onOpen, onNewNote, onNewFolder, onR
 function HistoryDrawer({ vault, onOpen, onClose }: { vault: string; onOpen: (p: string) => void; onClose: () => void }) {
   const { data } = useApi<any[]>(`brain/${vault}/recent?limit=60`, ["brain."]);
   return (
-    <div className="flex w-72 shrink-0 flex-col border-l border-line bg-card">
-      <div className="flex items-center justify-between px-3 py-3"><p className="text-sm font-semibold text-ink">Thay đổi gần đây</p><button onClick={onClose} className="text-muted"><X className="h-4 w-4" /></button></div>
+    <div className="flex min-h-0 w-72 shrink-0 flex-col border-l border-line bg-card">
+      <div className="flex items-center justify-between px-3 py-3"><p className="text-sm font-bold text-ink">Vừa cập nhật</p><button onClick={onClose} className="text-muted"><X className="h-4 w-4" /></button></div>
       <div className="flex-1 overflow-y-auto px-2 pb-3 scroll-thin">
         {!data ? <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted" /> : data.map((n) => (
           <button key={n.path} onClick={() => onOpen(n.path)} className="block w-full rounded-lg px-2 py-1.5 text-left hover:bg-soft">
@@ -267,22 +297,22 @@ function AskBar({ vault, openPath, onUpload }: { vault: string | null; openPath:
   const send = () => {
     const msg = text.trim();
     if (!msg) return;
-    ask(openPath ? `${msg}\n\n(Sếp đang xem ghi chú "${openPath}" trong Bộ não)` : msg);
+    ask(openPath ? `${msg}\n\n(Sếp đang xem ghi chú "${openPath}" trong Agentic Brain)` : msg);
     setText("");
   };
   return (
     <div className="border-t border-line bg-card px-4 pb-3 pt-2">
-      <p className="mb-1.5 flex items-center gap-2 text-xs text-muted"><span className={cx("h-2 w-2 rounded-full", info?.ready ? "bg-emerald-500" : "bg-amber-500")} />Ngân Nguyệt · Claude CLI · {info?.settings?.model ?? info?.defaultModel ?? "…"}{openPath && <span className="truncate">· đang xem: {openPath}</span>}<button onClick={() => window.dispatchEvent(new CustomEvent("nguyet:open"))} className="ml-auto shrink-0 font-medium text-violet-600 hover:underline">Mở khung chat Ngân Nguyệt</button></p>
+      <p className="mb-1.5 flex items-center gap-2 text-xs text-muted"><span className={cx("h-2 w-2 rounded-full", info?.ready ? "bg-emerald-500" : "bg-amber-500")} />Ngân Nguyệt {info?.ready ? "sẵn sàng" : "chưa sẵn sàng"} · Claude CLI · {info?.settings?.model ?? info?.defaultModel ?? "…"}{openPath && <span className="truncate">· đang xem: {openPath}</span>}<button onClick={() => window.dispatchEvent(new CustomEvent("nguyet:open"))} className="ml-auto shrink-0 font-medium text-violet-600 hover:underline">Mở khung chat Ngân Nguyệt</button></p>
       <div className="flex items-end gap-2">
         <button onClick={speech.toggle} disabled={!speech.supported} title={speech.supported ? (speech.listening ? "Dừng nghe" : "Nói (tiếng Việt)") : "Trình duyệt chưa hỗ trợ nhận giọng nói"}
           className={cx("grid h-11 w-11 shrink-0 place-items-center rounded-full border", speech.listening ? "animate-pulse border-rose-400 bg-rose-500 text-white" : "border-line text-ink hover:bg-soft disabled:opacity-40")}>{speech.listening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}</button>
-        <button onClick={() => file.current?.click()} disabled={!vault} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line text-ink hover:bg-soft" title="Đính kèm file vào Bộ não"><Paperclip className="h-5 w-5" /></button>
+        <button onClick={() => file.current?.click()} disabled={!vault} className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line text-ink hover:bg-soft" title="Lưu file vào Hộp thư của Agentic Brain"><Paperclip className="h-5 w-5" /></button>
         <input ref={file} type="file" multiple className="hidden" onChange={(e) => { if (e.target.files?.length) onUpload(e.target.files); e.target.value = ""; }} />
-        <textarea rows={1} value={speech.interim ? `${text} ${speech.interim}` : text} onChange={(e) => setText(e.target.value)} placeholder="Nói với Ngân Nguyệt, gõ ở đây, hoặc kéo/dán file vào…"
+        <textarea rows={1} value={speech.interim ? `${text} ${speech.interim}` : text} onChange={(e) => setText(e.target.value)} placeholder="Giao việc, hỏi hoặc nhờ Ngân Nguyệt ghi lại… (thả file vào để lưu)"
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); } }}
           onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); onUpload(e.clipboardData.files); } }}
-          className="max-h-32 min-h-[44px] flex-1 resize-none rounded-2xl border border-line bg-card px-4 py-2.5 text-sm text-ink outline-none placeholder:text-muted focus:border-orange-400" />
-        <button onClick={send} disabled={!text.trim()} className="grid h-11 w-12 shrink-0 place-items-center rounded-xl bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50"><Send className="h-5 w-5" /></button>
+          className="max-h-32 min-h-[44px] flex-1 resize-none rounded-2xl border border-line bg-card px-4 py-2.5 text-sm text-ink outline-none placeholder:text-muted focus:border-violet-400" />
+        <button onClick={send} disabled={!text.trim()} className="flex h-11 shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-600 to-fuchsia-600 px-4 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-50"><SendHorizontal className="h-4 w-4" />Giao</button>
       </div>
     </div>
   );
@@ -296,22 +326,22 @@ function NewVaultModal({ open, onClose, onDone }: { open: boolean; onClose: () =
   const toast = useToast();
   const go = async () => {
     setBusy(true);
-    try { await api.post("brain/vaults", { name, path: path.trim() || undefined, scaffold }); toast("Đã thêm bộ não"); setName(""); setPath(""); onDone(); } catch (e: any) { toast(e.message, "err"); } finally { setBusy(false); }
+    try { await api.post("brain/vaults", { name, path: path.trim() || undefined, scaffold }); toast("Đã thêm kho trí nhớ"); setName(""); setPath(""); onDone(); } catch (e: any) { toast(e.message, "err"); } finally { setBusy(false); }
   };
   return (
-    <Modal open={open} onClose={onClose} title="Thêm bộ não" footer={<><Button variant="ghost" onClick={onClose}>Hủy</Button><Button variant="primary" loading={busy} disabled={name.trim().length < 2} onClick={go}>Thêm</Button></>}>
+    <Modal open={open} onClose={onClose} title="Thêm kho trí nhớ" footer={<><Button variant="ghost" onClick={onClose}>Hủy</Button><Button variant="primary" loading={busy} disabled={name.trim().length < 2} onClick={go}>Thêm</Button></>}>
       <div className="space-y-3 text-sm">
-        <div><p className="mb-1 font-medium">Tên</p><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Bộ não Đỗ Thu Trà" autoFocus /></div>
-        <div><p className="mb-1 font-medium">Thư mục có sẵn (tùy chọn)</p><input className={inputCls} value={path} onChange={(e) => setPath(e.target.value)} placeholder="/Users/…/Obsidian/Brain — để trống = tạo bộ não mới đủ thư mục" /></div>
-        {path.trim() && <label className="flex items-center gap-2"><input type="checkbox" checked={scaffold} onChange={(e) => setScaffold(e.target.checked)} />Thêm các thư mục chuẩn (00 - Dashboard … 10 - Wiki) nếu chưa có</label>}
-        <p className="text-xs text-muted">Bộ não là các file Markdown thường — mở được bằng Obsidian. Nối thư mục Obsidian có sẵn: hệ thống đọc tất cả ghi chú, không đổi gì nếu không được bảo.</p>
+        <div><p className="mb-1 font-medium">Tên</p><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Agentic Brain · Đỗ Thu Trà" autoFocus /></div>
+        <div><p className="mb-1 font-medium">Thư mục có sẵn (tùy chọn)</p><input className={inputCls} value={path} onChange={(e) => setPath(e.target.value)} placeholder="/Users/…/Obsidian/… — để trống = tạo kho mới đủ 18 ngăn" /></div>
+        {path.trim() && <label className="flex items-center gap-2"><input type="checkbox" checked={scaffold} onChange={(e) => setScaffold(e.target.checked)} />Thêm 18 ngăn chuẩn (1. Tổng quan … 18. Tệp & hình ảnh) nếu chưa có</label>}
+        <p className="text-xs text-muted">Agentic Brain lưu bằng file Markdown thường — mở được bằng Obsidian. Nối thư mục Obsidian có sẵn: hệ thống đọc tất cả ghi chú, không đổi gì nếu không được bảo.</p>
       </div>
     </Modal>
   );
 }
 function NewNoteModal({ vault, folders, init, onClose, onDone }: { vault: string | null; folders: string[]; init: { folder: string } | null; onClose: () => void; onDone: (p: string) => void }) {
   const [title, setTitle] = useState("");
-  const [folder, setFolder] = useState("01 - Inbox");
+  const [folder, setFolder] = useState("2. Hộp thư");
   const toast = useToast();
   useEffect(() => { if (init) { setFolder(init.folder); setTitle(""); } }, [init]);
   const go = async () => { try { const r = await api.post(`brain/${vault}/note`, { folder, title }); onDone(r.path); } catch (e: any) { toast(e.message, "err"); } };
@@ -330,7 +360,7 @@ function NewFolderModal({ vault, open, onClose, onDone }: { vault: string | null
   const go = async () => { try { await api.post(`brain/${vault}/folder`, { path }); setPath(""); onDone(); } catch (e: any) { toast(e.message, "err"); } };
   return (
     <Modal open={open} onClose={onClose} title="Thư mục mới" footer={<><Button variant="ghost" onClick={onClose}>Hủy</Button><Button variant="primary" disabled={!path.trim()} onClick={go}>Tạo</Button></>}>
-      <input className={inputCls} value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === "Enter" && path.trim() && go()} placeholder="03 - Work/Chiến dịch Tết 2027" autoFocus />
+      <input className={inputCls} value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === "Enter" && path.trim() && go()} placeholder="8. Dự án/Chiến dịch Tết 2027" autoFocus />
     </Modal>
   );
 }

@@ -46,7 +46,7 @@ export function NoteView({ vault, path, onOpen, onClose, onAsk, resolve }: {
     const hit = resolve(target);
     if (hit) return onOpen(hit);
     if (/\.(png|jpe?g|gif|webp|svg|pdf|mp4|mp3|docx?|xlsx?)$/i.test(target)) return window.open(`/v1/brain/${vault}/file?path=${encodeURIComponent(target)}`, "_blank");
-    try { const r = await api.post(`brain/${vault}/note`, { folder: "01 - Inbox", title: target.split("/").pop() }); toast(`Đã tạo ghi chú mới "${target}"`); onOpen(r.path); } catch (e: any) { toast(e.message, "err"); }
+    try { const r = await api.post(`brain/${vault}/note`, { folder: "2. Hộp thư", title: target.split("/").pop() }); toast(`Đã tạo ghi chú mới "${target}"`); onOpen(r.path); } catch (e: any) { toast(e.message, "err"); }
   };
   const doRename = async () => {
     if (!rename?.trim()) return;
@@ -55,7 +55,7 @@ export function NoteView({ vault, path, onOpen, onClose, onAsk, resolve }: {
     try { const r = await api.post(`brain/${vault}/rename`, { from: path, to }); toast(r.relinked ? `Đã đổi tên, sửa ${r.relinked} liên kết` : "Đã đổi tên"); setRename(null); onOpen(r.path); } catch (e: any) { toast(e.message, "err"); }
   };
   const del = async () => {
-    try { await api.del(`brain/${vault}/note?path=${encodeURIComponent(path)}`); toast("Đã chuyển vào thùng rác của bộ não (.trash) — khôi phục được"); onClose(); } catch (e: any) { toast(e.message, "err"); }
+    try { await api.del(`brain/${vault}/note?path=${encodeURIComponent(path)}`); toast("Đã chuyển vào thùng rác (.trash) của Agentic Brain — khôi phục được"); onClose(); } catch (e: any) { toast(e.message, "err"); }
   };
   const md = useMemo(() => prepare(text, vault), [text, vault]);
   const meta = data?.meta ?? {};
@@ -76,7 +76,7 @@ export function NoteView({ vault, path, onOpen, onClose, onAsk, resolve }: {
           <button onClick={() => setMode("edit")} className={cx("flex items-center gap-1 rounded-md px-2 py-1 text-xs", mode === "edit" ? "bg-blue-600 text-white" : "text-muted")}><Pencil className="h-3.5 w-3.5" />Sửa</button>
         </div>
         {dirty && <Button size="sm" variant="primary" icon={Save} loading={saving} onClick={() => save()}>Lưu</Button>}
-        <button onClick={() => onAsk(`Đọc ghi chú "${path}" trong Bộ não rồi tóm tắt và đề xuất việc nên làm tiếp.`)} className="rounded-lg p-1.5 text-violet-600 hover:bg-violet-500/10" title="Hỏi Ngân Nguyệt về ghi chú này"><Moon className="h-4 w-4" /></button>
+        <button onClick={() => onAsk(`Đọc ghi chú "${path}" trong Agentic Brain rồi tóm tắt và đề xuất việc nên làm tiếp.`)} className="rounded-lg p-1.5 text-violet-600 hover:bg-violet-500/10" title="Hỏi Ngân Nguyệt về ghi chú này"><Moon className="h-4 w-4" /></button>
         <button onClick={() => setRename(data.title)} className="rounded-lg p-1.5 text-muted hover:bg-soft" title="Đổi tên / chuyển thư mục"><Type className="h-4 w-4" /></button>
         <button onClick={() => api.post(`brain/vaults/${vault}/open`, { path })} className="rounded-lg p-1.5 text-muted hover:bg-soft" title="Mở trong Finder"><FolderOpen className="h-4 w-4" /></button>
         <button onClick={() => setConfirmDel(true)} className="rounded-lg p-1.5 text-muted hover:bg-rose-500/10 hover:text-rose-600" title="Xóa (vào thùng rác)"><Trash2 className="h-4 w-4" /></button>
@@ -108,19 +108,19 @@ export function NoteView({ vault, path, onOpen, onClose, onAsk, resolve }: {
         </div>
         <aside className="hidden w-64 shrink-0 overflow-y-auto border-l border-line p-3 text-xs scroll-thin lg:block">
           {data.tags?.length > 0 && <div className="mb-4"><p className="mb-1.5 flex items-center gap-1 font-semibold text-ink"><Tag className="h-3.5 w-3.5" />Thẻ</p><div className="flex flex-wrap gap-1">{data.tags.map((t: string) => <Badge key={t}>#{t}</Badge>)}</div></div>}
-          <p className="mb-1.5 flex items-center gap-1 font-semibold text-ink"><Link2 className="h-3.5 w-3.5" />Được nhắc tới ở ({data.backlinks.length})</p>
+          <p className="mb-1.5 flex items-center gap-1 font-semibold text-ink"><Link2 className="h-3.5 w-3.5" />Ghi chú trỏ về đây ({data.backlinks.length})</p>
           <div className="mb-4 space-y-0.5">{data.backlinks.length ? data.backlinks.map((b: any) => <button key={b.path} onClick={() => onOpen(b.path)} className="block w-full truncate rounded px-1.5 py-1 text-left text-violet-700 hover:bg-soft dark:text-violet-300" title={b.path}>{b.title}</button>) : <p className="text-muted">Chưa có ghi chú nào liên kết tới.</p>}</div>
-          <p className="mb-1.5 font-semibold text-ink">Liên kết đi ({data.links.length})</p>
+          <p className="mb-1.5 font-semibold text-ink">Ghi chú này trỏ tới ({data.links.length})</p>
           <div className="space-y-0.5">{data.links.map((l: any, i: number) => <button key={i} onClick={() => void openWiki(l.target)} className={cx("block w-full truncate rounded px-1.5 py-1 text-left hover:bg-soft", l.path ? "text-ink" : "italic text-muted")} title={l.path ?? "Chưa có — bấm để tạo"}>{l.target}</button>)}</div>
         </aside>
       </div>
 
       <Modal open={rename !== null} onClose={() => setRename(null)} title="Đổi tên / chuyển ghi chú" footer={<><Button variant="ghost" onClick={() => setRename(null)}>Hủy</Button><Button variant="primary" onClick={doRename}>Đổi</Button></>}>
         <input className={inputCls} value={rename ?? ""} onChange={(e) => setRename(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doRename()} autoFocus />
-        <p className="mt-2 text-xs text-muted">Gõ tên mới, hoặc đường dẫn có thư mục (vd: <code>09 - Archive/Tên cũ</code>) để chuyển. Các [[liên kết]] trỏ tới ghi chú này được sửa theo.</p>
+        <p className="mt-2 text-xs text-muted">Gõ tên mới, hoặc đường dẫn có thư mục (vd: <code>17. Lưu trữ/Tên cũ</code>) để chuyển. Các [[liên kết]] trỏ tới ghi chú này được sửa theo.</p>
       </Modal>
       <Modal open={confirmDel} onClose={() => setConfirmDel(false)} title="Xóa ghi chú?" footer={<><Button variant="ghost" onClick={() => setConfirmDel(false)}>Hủy</Button><Button variant="danger" onClick={del}>Chuyển vào thùng rác</Button></>}>
-        <p className="text-sm">"{data.title}" sẽ được chuyển vào thư mục <code>.trash</code> của bộ não (không xóa vĩnh viễn, khôi phục được trong Finder/Obsidian).</p>
+        <p className="text-sm">"{data.title}" sẽ được chuyển vào thư mục <code>.trash</code> của Agentic Brain (không xóa vĩnh viễn, khôi phục được trong Finder/Obsidian).</p>
       </Modal>
     </div>
   );

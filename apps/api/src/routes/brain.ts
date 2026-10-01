@@ -5,7 +5,7 @@ import { z } from "zod";
 import { CATALOG } from "@dotaka/agents";
 import { audit, defaultBizId, q, type Row } from "@dotaka/db";
 import {
-  VAULT_FOLDERS, activeVault, appendToNote, brainTick, createFolder, createNote, createReminder, createVault, listVaults, noteExists, noteLinks, openVaultFolder,
+  F, VAULT_FOLDERS, activeVault, appendToNote, brainTick, createFolder, createNote, createReminder, createVault, listVaults, noteExists, noteLinks, openVaultFolder,
   parseFrontmatter, readNoteFile, recentNotes, removeVault, renameNote, safeName, safePath, saveAttachment, scanVault, searchNotes, setActiveVault, setNoteMeta,
   trashNote, upcomingReminders, vaultGraph, vaultOf, vaultTree, vnDate, writeDaily, writeMonthly, writeNoteFile, writeWeekly,
 } from "@dotaka/orchestrator";
@@ -14,7 +14,7 @@ import { routes } from "../http.ts";
 
 const MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml", ".pdf": "application/pdf", ".mp4": "video/mp4", ".mp3": "audio/mpeg", ".md": "text/markdown; charset=utf-8", ".txt": "text/plain; charset=utf-8" };
 
-/** Bộ não (vault) API. `:v` is a vault id or "active". */
+/** Agentic Brain (vault) API. `:v` is a vault id or "active". */
 export function brainRoutes(app: FastifyInstance) {
   const r = routes(app);
   const V = (bizId: string, id: string) => vaultOf(bizId, id);
@@ -106,11 +106,11 @@ export function brainRoutes(app: FastifyInstance) {
     const ext = extname(p.name).toLowerCase();
     const title = safeName(p.name.replace(/\.[^.]+$/, ""));
     let path: string;
-    if ([".md", ".txt", ".markdown"].includes(ext)) path = createNote(v, { folder: p.folder ?? "01 - Inbox", title, content: buf.toString("utf8"), meta: { source: `upload:${p.name}` } });
+    if ([".md", ".txt", ".markdown"].includes(ext)) path = createNote(v, { folder: p.folder ?? F.inbox, title, content: buf.toString("utf8"), meta: { source: `upload:${p.name}` } });
     else {
       const file = saveAttachment(v, p.name, buf);
       const embed = /\.(png|jpe?g|gif|webp|svg)$/i.test(file) ? `![[${file.split("/").pop()}]]` : `[[${file.split("/").pop()}]]`;
-      path = createNote(v, { folder: p.folder ?? "01 - Inbox", title, content: `Tệp đính kèm: ${embed}\n\nĐường dẫn: \`${file}\``, meta: { attachment: file } });
+      path = createNote(v, { folder: p.folder ?? F.inbox, title, content: `Tệp đính kèm: ${embed}\n\nĐường dẫn: \`${file}\``, meta: { attachment: file } });
     }
     audit(bizId, actor, "brain.uploaded", { type: "brain_vault", id: v.id }, { name: p.name, path });
     return { path };
@@ -119,14 +119,14 @@ export function brainRoutes(app: FastifyInstance) {
   app.get("/v1/brain/:v/file", async (req, reply) => {
     const v = vaultOf(defaultBizId(), (req.params as Row).v);
     let rel = String((req.query as Row).path ?? "");
-    if (!rel.includes("/") && !noteExists(v, rel)) rel = `attachments/${rel}`;
+    if (!rel.includes("/") && !noteExists(v, rel)) rel = `${F.files}/${rel}`;
     const abs = safePath(v, rel);
     if (!existsSync(abs) || !statSync(abs).isFile()) return reply.status(404).send({ code: "NOT_FOUND", message: "Không thấy tệp" });
     reply.type(MIME[extname(abs).toLowerCase()] ?? "application/octet-stream").header("cache-control", "max-age=300");
     return reply.send(createReadStream(abs));
   });
 
-  // Reminders (04 - Future Log) — shown in Ngân Nguyệt "Lịch & nhắc", fired by brain.tick
+  // Reminders ("Kế hoạch & nhắc việc") — shown in Ngân Nguyệt "Lịch & nhắc", fired by brain.tick
   r.get("/v1/brain/reminders", ({ bizId, query }) => {
     try { return upcomingReminders(activeVault(bizId), 100, query.all === "1"); } catch { return []; }
   });

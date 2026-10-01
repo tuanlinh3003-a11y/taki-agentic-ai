@@ -44,7 +44,7 @@ function inline(text: string, key: string): ReactNode[] {
     const t = m[0];
     const k = `${key}-${i++}`;
     if (t.startsWith("[[")) {
-      // [[Ghi chú]] in Bộ não → opens it on the brain page
+      // [[Ghi chú]] in Agentic Brain → opens it on the brain page
       const [target, alias] = t.slice(2, -2).split("|");
       out.push(<Link key={k} to={`/brain?link=${encodeURIComponent(target.split("#")[0].trim())}`} className="font-medium text-violet-600 hover:underline dark:text-violet-300">{alias ?? target.split("/").pop()}</Link>);
     } else if (t.startsWith("**")) out.push(<strong key={k} className="font-semibold text-ink">{t.slice(2, -2)}</strong>);
@@ -437,7 +437,7 @@ function FeedbackTab({ open }: { open: (threadId: string) => void }) {
   const up = data.filter((d) => d.feedback === "up").length;
   return (
     <div className="flex-1 space-y-2 overflow-y-auto p-3 scroll-thin">
-      <p className="rounded-xl bg-soft p-3 text-xs text-muted">Bấm 👍/👎 dưới mỗi câu trả lời. Góp ý kèm ghi chú (👎) được Ngân Nguyệt áp dụng ngay từ tin nhắn sau và lưu vào Bộ não (07 - Learning).{data.length ? ` Đã chấm ${data.length}: 👍 ${up} · 👎 ${data.length - up}.` : ""}</p>
+      <p className="rounded-xl bg-soft p-3 text-xs text-muted">Bấm 👍/👎 dưới mỗi câu trả lời. Góp ý kèm ghi chú (👎) được Ngân Nguyệt áp dụng ngay từ tin nhắn sau và lưu vào Agentic Brain (12. Bài học).{data.length ? ` Đã chấm ${data.length}: 👍 ${up} · 👎 ${data.length - up}.` : ""}</p>
       {!data.length ? <p className="p-4 text-center text-sm text-muted">Chưa có phản hồi nào.</p> : data.map((d) => (
         <button key={d.id} onClick={() => open(d.thread_id)} className={cx("block w-full rounded-xl border p-3 text-left hover:bg-soft", d.feedback === "up" ? "border-emerald-400/40" : "border-rose-400/40")}>
           <p className="flex items-center gap-1.5 text-xs font-medium text-ink">{d.feedback === "up" ? <ThumbsUp className="h-3.5 w-3.5 text-emerald-600" /> : <ThumbsDown className="h-3.5 w-3.5 text-rose-600" />}<span className="truncate">{d.thread_title}</span><span className="ml-auto shrink-0 text-[10px] text-muted">{timeAgo(d.updated_at)}</span></p>
