@@ -263,7 +263,9 @@ export async function runClaudeInTerminal(o: TerminalRunOptions): Promise<unknow
     'echo "Khi Claude hỏi quyền dùng Chrome/trang web: chọn cho phép (trong phiên này)."',
     'echo "Để cửa sổ này mở đến khi Claude báo XONG. Hệ thống tự nhận kết quả."',
     "echo",
-    "unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDECODE",
+    // Fresh top-level session (not a "child" of the server's environment) so its transcript is saved → live progress.
+    "unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDECODE CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SSE_PORT",
+    "export CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1",
     `exec ${shq(bin)} --chrome --model ${shq(o.model)} --session-id ${sessionId} --name ${shq(`TAKI · ${o.title}`)} \\`,
     `  --allowedTools ${o.allowedTools.map(shq).join(" ")} \\`,
     ...o.addDirs.map((d) => `  --add-dir ${shq(d)} \\`),
