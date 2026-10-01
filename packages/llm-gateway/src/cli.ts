@@ -214,3 +214,109 @@ export function runClaudeAgent(o: AgentRunOptions): Promise<AgentRunResult> {
     child.stdin.end(o.prompt);
   });
 }
+
+// ---------------- Supervised run in a Terminal window (Claude in Chrome needs a human to approve) ----------------
+export interface TerminalRunOptions {
+  title: string;
+  prompt: string;
+  system: string;
+  model: string;
+  cwd: string;
+  allowedTools: string[];
+  addDirs: string[];
+  /** The agent writes its final JSON here; the run completes when this file appears and parses. */
+  resultFile: string;
+  timeoutMs: number;
+  signal?: AbortSignal;
+  onStep?: (step: { at: string; kind: "tool" | "text"; text: string }) => void;
+}
+
+const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/**
+ * Claude Code (2.1.2xx+) refuses Claude in Chrome actions in headless `-p` runs unless a person approves them.
+ * So browser jobs run as an INTERACTIVE Claude session in a Terminal window: the CEO approves Chrome once
+ * ("allow for this session"), the agent works, writes `resultFile`, and we pick it up. Progress is read live
+ * from the session transcript (~/.claude/projects/<cwd>/<session-id>.jsonl).
+ */
+export async function runClaudeInTerminal(o: TerminalRunOptions): Promise<unknown> {
+  if (process.platform !== "darwin") throw new AppError("NOT_SUPPORTED", "Chế độ Terminal hiện hỗ trợ macOS");
+  const { writeFileSync, existsSync, readFileSync, rmSync, chmodSync, readdirSync, statSync } = await import("node:fs");
+  const { homedir } = await import("node:os");
+  const { randomUUID } = await import("node:crypto");
+  const dir = join(o.cwd, ".taki-run");
+  mkdirSync(dir, { recursive: true });
+  rmSync(o.resultFile, { force: true });
+  const sessionId = randomUUID();
+  // Absolute path: a Terminal login shell may not have the same PATH as this server.
+  let bin = BIN;
+  try { bin = execFileSync("/bin/sh", ["-lc", `command -v ${shq(BIN)}`], { encoding: "utf8", env: childEnv() }).trim() || BIN; } catch { /* keep BIN */ }
+  writeFileSync(join(dir, "system.md"), o.system);
+  writeFileSync(join(dir, "prompt.md"), o.prompt);
+  const script = join(dir, "run.command");
+  writeFileSync(script, [
+    "#!/bin/bash",
+    `cd ${shq(o.cwd)}`,
+    `printf '\\033]0;TAKI · ${o.title.replace(/'/g, "")}\\007'`,
+    "clear",
+    `echo "TAKI Agentic AI — ${o.title.replace(/["$`\\]/g, "")}"`,
+    'echo "Khi Claude hỏi quyền dùng Chrome/trang web: chọn cho phép (trong phiên này)."',
+    'echo "Để cửa sổ này mở đến khi Claude báo XONG. Hệ thống tự nhận kết quả."',
+    "echo",
+    "unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDECODE",
+    `exec ${shq(bin)} --chrome --model ${shq(o.model)} --session-id ${sessionId} --name ${shq(`TAKI · ${o.title}`)} \\`,
+    `  --allowedTools ${o.allowedTools.map(shq).join(" ")} \\`,
+    ...o.addDirs.map((d) => `  --add-dir ${shq(d)} \\`),
+    `  --append-system-prompt-file ${shq(join(dir, "system.md"))} \\`,
+    `  "$(cat ${shq(join(dir, "prompt.md"))})"`,
+    "",
+  ].join("\n"));
+  chmodSync(script, 0o755);
+  await new Promise<void>((resolve, reject) => {
+    const p = spawn("open", ["-a", "Terminal", script], { stdio: "ignore" });
+    p.on("error", (e) => reject(new AppError("TERMINAL_FAILED", `Không mở được Terminal: ${e.message}`, 503)));
+    p.on("close", (code) => (code === 0 ? resolve() : reject(new AppError("TERMINAL_FAILED", `Không mở được Terminal (code ${code})`, 503))));
+  });
+
+  // Live progress from the transcript of this session.
+  const projects = join(homedir(), ".claude", "projects");
+  let transcript: string | null = null;
+  let offset = 0;
+  const readSteps = () => {
+    if (!transcript) {
+      try {
+        for (const d of readdirSync(projects)) {
+          const f = join(projects, d, `${sessionId}.jsonl`);
+          if (existsSync(f)) { transcript = f; break; }
+        }
+      } catch { /* not created yet */ }
+      if (!transcript) return;
+    }
+    const size = statSync(transcript).size;
+    if (size <= offset) return;
+    const chunk = readFileSync(transcript, "utf8").slice(offset);
+    offset = size;
+    for (const line of chunk.split("\n")) {
+      if (!line.trim()) continue;
+      let ev: any;
+      try { ev = JSON.parse(line); } catch { continue; }
+      if (ev.type !== "assistant") continue;
+      for (const c of ev.message?.content ?? []) {
+        if (c.type === "tool_use") o.onStep?.({ at: new Date().toISOString(), kind: "tool", text: describeTool(c.name, c.input) });
+        else if (c.type === "text" && c.text?.trim()) o.onStep?.({ at: new Date().toISOString(), kind: "text", text: c.text.trim().slice(0, 300) });
+      }
+    }
+  };
+
+  const started = Date.now();
+  o.onStep?.({ at: new Date().toISOString(), kind: "text", text: "Đã mở cửa sổ Terminal — bấm cho phép Claude dùng Chrome khi được hỏi" });
+  while (true) {
+    if (o.signal?.aborted) throw new AppError("CANCELLED", "Đã hủy", 499);
+    if (Date.now() - started > o.timeoutMs) throw new AppError("AGENT_TIMEOUT", `Quá ${Math.round(o.timeoutMs / 60000)} phút chưa có kết quả`, 504);
+    try { readSteps(); } catch { /* transcript mid-write */ }
+    if (existsSync(o.resultFile)) {
+      try { return JSON.parse(readFileSync(o.resultFile, "utf8")); } catch { /* still being written */ }
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+}

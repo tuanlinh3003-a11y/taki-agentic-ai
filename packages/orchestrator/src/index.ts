@@ -5,7 +5,7 @@ import { formatVnd, nowIso } from "@dotaka/shared";
 import { runAllRules, executeAction, publishCandidate, startAdsReport, syncAdMetrics, latestDaily, sumMetrics, today } from "./ads.ts";
 import { expireApprovals } from "./approvals.ts";
 import { learnDaily } from "./learning.ts";
-import { runDraftUpload, runVideoJob } from "./creative.ts";
+import { reattachVideoJob, runDraftUpload, runVideoJob } from "./creative.ts";
 import { runPublishJob, schedulePublish, snapshotPost } from "./publishing.ts";
 import { startScheduler, startWorkers, type Handler } from "./queue.ts";
 import { runTask } from "./runtime.ts";
@@ -70,10 +70,8 @@ export function startOrchestrator() {
     update("task", t.id, { status: "ready", step: "Khôi phục sau khởi động lại" });
     audit(t.biz_id, "orchestrator", "task.recovered", { type: "task", id: t.id }, { from: t.status });
   }
-  // A Flow job cannot resume a half-driven browser session: mark it failed so it can be restarted cleanly.
-  for (const j of q.all<Row>("SELECT id, biz_id FROM creative_job WHERE status = 'running'")) {
-    update("creative_job", j.id, { status: "failed", error: "Server khởi động lại giữa chừng, hãy chạy lại", step: null });
-  }
+  // Flow jobs run in a Terminal window that survives a server restart: re-attach and wait for result.json.
+  for (const j of q.all<Row>("SELECT id FROM creative_job WHERE status = 'running'")) void reattachVideoJob(j.id).catch(() => {});
   registerTelegramFromDb();
   registerZaloProxy();
   for (const b of q.all<Row>("SELECT id FROM biz")) {

@@ -152,7 +152,7 @@ export function VideoFlow() {
         <div className="space-y-2 text-sm">
           <p><b>{tool?.label}</b> · {form.title}</p>
           <ul className="list-disc space-y-1 pl-5 text-muted">
-            <li>Agent sẽ điều khiển Chrome "{settings.data?.browserLabel ?? "đã chọn"}" khoảng {tool?.minutes ?? 40} phút. Đừng đóng hay thao tác trên tab Flow trong lúc chạy.</li>
+            <li>Hệ thống mở <b>một cửa sổ Terminal</b> chạy Claude: khi Claude hỏi quyền dùng Chrome/trang web, bấm <b>cho phép (trong phiên này)</b>. Sau đó AI tự thao tác trên Flow của profile "{settings.data?.chromeProfileName ?? settings.data?.browserLabel ?? "đã chọn"}" khoảng {tool?.minutes ?? 40} phút — đừng đóng cửa sổ Terminal hay thao tác trên tab Flow.</li>
             <li>Mỗi lần tạo cảnh tốn tín dụng Google Flow (tối đa 3 lần làm lại mỗi cảnh).</li>
             <li>Video thành phẩm vào hộp Duyệt; chỉ sau khi duyệt mới đăng <b>bản nháp</b> lên {form.channels.join(", ")}.</li>
           </ul>
@@ -258,7 +258,7 @@ function BrowserPicker({ open, current, onClose, onSaved }: { open: boolean; cur
           <span>{data ? `${data.profiles.length} profile · ${data.profiles.filter((p) => p.claudeExtension).length} profile có Claude in Chrome` : ""}</span>
           <Button size="sm" variant="ghost" onClick={load}>Quét lại</Button>
         </div>
-        <p className="rounded-xl bg-soft p-3 text-xs text-muted">Profile chưa có extension: bấm <b>Cài Claude in Chrome</b> → “Thêm vào Chrome” → đăng nhập tài khoản Claude trong extension → quay lại bấm <b>Kiểm tra kết nối</b>. “Kiểm tra kết nối” mở 1 tab nhận diện trong profile đó (tự đóng) và dùng một lượt nhỏ Claude.</p>
+        <p className="rounded-xl bg-soft p-3 text-xs text-muted">Profile chưa có extension: bấm <b>Cài Claude in Chrome</b> → “Thêm vào Chrome” → đăng nhập tài khoản Claude trong extension → quay lại bấm <b>Kiểm tra kết nối</b>. “Kiểm tra kết nối” mở một cửa sổ Terminal ngắn: bấm cho phép Claude dùng Chrome, Claude đọc email tài khoản Google trong profile để xác nhận đúng profile.</p>
       </div>
     </Modal>
   );

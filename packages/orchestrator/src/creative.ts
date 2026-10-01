@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { FLOW_URL, markerTitle, markerUrl, openInProfile } from "./chrome-profiles.ts";
+import { FLOW_URL, listChromeProfiles, openInProfile } from "./chrome-profiles.ts";
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
 import { activeDna, audit, bizSettings, byId, emit, insert, q, update, type Row } from "@dotaka/db";
 import { connector, platformForChannel } from "@dotaka/connectors";
-import { effectiveProvider, modelFor, runClaudeAgent } from "@dotaka/llm-gateway";
+import { effectiveProvider, modelFor, runClaudeAgent, runClaudeInTerminal } from "@dotaka/llm-gateway";
 import { agentPlaybook } from "@dotaka/skills";
 import { AppError, logger, nowIso } from "@dotaka/shared";
 import { PermanentError, enqueue } from "./queue.ts";
@@ -66,16 +66,16 @@ export function flowSettings(bizId: string) {
   };
 }
 
-/** Prompt lines telling the agent how to pick the right browser among those connected to Claude in Chrome. */
-function browserInstructions(fs: ReturnType<typeof flowSettings>, token: string | null) {
-  if (token) {
-    return [
-      `- Trình duyệt: dùng Claude in Chrome, ĐÚNG profile Chrome "${fs.chromeProfileName}"${fs.chromeProfileEmail ? ` (${fs.chromeProfileEmail})` : ""}. Hệ thống vừa mở trong profile này một tab tiêu đề "${markerTitle(token)}".`,
-      `  Việc ĐẦU TIÊN: gọi list_connected_browsers; ${fs.browserDeviceId ? `thử select_browser deviceId "${fs.browserDeviceId}" trước, ` : ""}với mỗi trình duyệt: select_browser rồi tabs_context_mcp, tìm tab có tiêu đề hoặc URL chứa "${token}". Trình duyệt có tab đó là profile cần dùng → đóng tab đánh dấu, mở ${FLOW_URL} trong tab mới.`,
-      "  Không thấy tab đánh dấu ở trình duyệt nào (profile chưa cài/đăng nhập Claude in Chrome) → dừng ngay, trả status \"blocked\" và ghi lý do. KHÔNG dùng profile khác.",
-    ];
-  }
-  return [`- Trình duyệt: dùng Claude in Chrome. Việc ĐẦU TIÊN: gọi list_connected_browsers rồi select_browser với deviceId "${fs.browserDeviceId}"${fs.browserLabel ? ` (${fs.browserLabel})` : ""}. Không chọn được thì dừng, trả status "blocked".`];
+/** Prompt lines telling the Flow agent how to land on the right Chrome profile (inside the supervised session). */
+function browserInstructions(fs: ReturnType<typeof flowSettings>) {
+  const who = fs.chromeProfileEmail ? `email ${fs.chromeProfileEmail}` : `profile "${fs.chromeProfileName}"`;
+  return [
+    `- Trình duyệt: Claude in Chrome, ĐÚNG profile Chrome "${fs.chromeProfileName ?? fs.browserLabel ?? "đã chọn"}"${fs.chromeProfileEmail ? ` (Google: ${fs.chromeProfileEmail})` : ""}. Hệ thống vừa mở profile này với Flow.`,
+    `  Việc ĐẦU TIÊN: navigate (không truyền tabId) tới https://myaccount.google.com/ → get_page_text → kiểm tra đang đăng nhập ${who}.`,
+    "  Sai tài khoản → list_connected_browsers, select_browser lần lượt từng trình duyệt và kiểm tra lại như trên; bỏ qua trình duyệt nào treo/hết hạn.",
+    "  Không tìm thấy đúng profile → dừng, ghi result với status \"blocked\". KHÔNG dùng tài khoản khác.",
+    `  Đúng rồi → mở ${FLOW_URL} trong tab của nhóm Claude và làm tiếp.`,
+  ];
 }
 
 // ---------------- Start ----------------
@@ -120,14 +120,10 @@ export async function runVideoJob(jobId: string) {
     emit(bizId, "alert.raised", { level: "warning", text: `Video "${job.title}": ${error}` });
   };
   if (effectiveProvider(bizId).provider !== "claude_cli") return fail("blocked", "Cần chế độ Tài khoản Claude (Claude Code CLI) để điều khiển Chrome");
-  if (!fs.chromeProfileDir && !fs.browserDeviceId) return fail("blocked", "Chưa chọn profile Chrome dùng cho Flow (Sản xuất video Flow → Chọn trình duyệt)");
-  // Open a marker tab in the chosen profile: brings that profile up and lets the agent identify it exactly.
-  let marker: string | null = null;
+  if (!fs.chromeProfileDir && !fs.browserDeviceId) return fail("blocked", "Chưa chọn profile Chrome dùng cho Flow (Sản xuất video Flow → Chọn profile Chrome)");
+  // Bring the chosen profile up with Flow open (the agent then confirms the account in-session).
   if (fs.chromeProfileDir && fs.chromeChannel) {
-    marker = `${jobId.slice(-12)}${Math.random().toString(36).slice(2, 6)}`;
-    try { openInProfile(fs.chromeChannel, fs.chromeProfileDir, markerUrl(marker)); }
-    catch (e) { return fail("blocked", `Không mở được profile Chrome "${fs.chromeProfileName}": ${e instanceof Error ? e.message : e}`); }
-    await new Promise((r) => setTimeout(r, 4000));
+    try { openInProfile(fs.chromeChannel, fs.chromeProfileDir, FLOW_URL); } catch (e) { return fail("blocked", `Không mở được profile Chrome "${fs.chromeProfileName}": ${e instanceof Error ? e.message : e}`); }
   }
   const skill = q.get<Row>("SELECT body, version FROM skill WHERE biz_id = ? AND key = ? AND status = 'active'", bizId, tool.skill);
   if (!skill) return fail("blocked", `Chưa nạp skill ${tool.skill} (Skill & Nhân viên MKT → Đồng bộ lại)`);
@@ -149,8 +145,8 @@ export async function runVideoJob(jobId: string) {
     `# SKILL ĐANG CHẠY: ${tool.skill} (v${skill.version})`,
     skill.body,
     "",
-    "# CHẠY NỀN TRONG HỆ THỐNG TAKI AGENTIC AI (không có người trông, máy Mac cục bộ)",
-    ...browserInstructions(fs, marker),
+    "# CHẠY TRONG CỬA SỔ TERMINAL CỦA HỆ THỐNG TAKI AGENTIC AI (máy Mac cục bộ; CEO chỉ bấm cho phép quyền khi được hỏi)",
+    ...browserInstructions(fs),
     "- Chỉ thao tác trên Flow (flow.google.com / labs.google). KHÔNG đăng nhập hộ, KHÔNG nhập mật khẩu, KHÔNG đổi cài đặt tài khoản, KHÔNG xóa gì. Chưa đăng nhập / hết tín dụng / không thấy công cụ → status \"blocked\" kèm lý do trong notes.",
     "- KHÔNG có người để hỏi: bỏ qua mọi bước AskUserQuestion/SendUserMessage/SendUserFile; thiếu thông tin thì tự giả định hợp lý và ghi vào notes.",
     "- Đây KHÔNG phải cloud: bỏ qua device_request_folder_access, device_stage_files, device_commit_files, /mnt/user-data.",
@@ -160,7 +156,8 @@ export async function runVideoJob(jobId: string) {
     `  taki-video-finish --clips <scene_01.mp4 …> --script ${join(workdir, "script.json")} --title "<tiêu đề hook>" --cta "<CTA>" --out ${join(workdir, "final.mp4")}`,
     "  Lệnh in JSON (thời lượng, độ phân giải, có âm thanh). Trích 2-3 khung hình bằng ffmpeg -ss <t> -frames:v 1 rồi Read để xem chữ không che mặt/sản phẩm.",
     "- Tối đa 3 lần tạo lại mỗi cảnh (tốn tín dụng Flow).",
-    `- KẾT THÚC: trả JSON theo schema. finalPath = ${join(workdir, "final.mp4")} khi thành công. caption = caption đăng kênh (tiếng Việt, ≤ 300 ký tự, 3-5 hashtag). script = lời thoại từng cảnh.`,
+    `- KẾT THÚC: dùng Write ghi kết quả JSON vào ${join(workdir, "result.json")} đúng schema sau rồi in "XONG — có thể đóng cửa sổ". Schema: ${JSON.stringify(Object.fromEntries(Object.entries(z.toJSONSchema(FlowResult, { target: "draft-7" }) as Row).filter(([k]) => k !== "$schema")))}`,
+    `- Bị chặn/lỗi giữa chừng cũng PHẢI ghi result.json với status "blocked"/"failed" và lý do trong notes. finalPath = ${join(workdir, "final.mp4")} khi thành công. caption = caption đăng kênh (tiếng Việt, ≤ 300 ký tự, 3-5 hashtag). script = lời thoại từng cảnh.`,
     ...(dna ? ["", "# THƯƠNG HIỆU: TAKI (áp dụng DNA dưới đây cho lời thoại, caption, claim)", dna] : ["", "# THƯƠNG HIỆU: kênh khác/khách hàng. KHÔNG dùng giọng hay tên TAKI; theo thông tin trong brief."]),
   ].join("\n");
   const prompt = [
@@ -180,16 +177,17 @@ export async function runVideoJob(jobId: string) {
   const ctrl = new AbortController();
   running.set(jobId, ctrl);
   const model = modelFor(bizId, "creative", "medium");
-  let r;
+  let structured: unknown;
+  const t0 = Date.now();
   try {
-    r = await runClaudeAgent({
-      prompt, system, model, chrome: true, cwd: workdir, signal: ctrl.signal,
+    structured = await runClaudeInTerminal({
+      title: `Video Flow: ${job.title}`, prompt, system, model, cwd: workdir, signal: ctrl.signal,
+      resultFile: join(workdir, "result.json"),
       timeoutMs: (fs.timeoutMin ?? tool.minutes + 30) * 60_000,
-      jsonSchema: Object.fromEntries(Object.entries(z.toJSONSchema(FlowResult, { target: "draft-7" }) as Row).filter(([k]) => k !== "$schema")),
       allowedTools: [
         "mcp__claude-in-chrome", "Read", "Write", "Glob",
         "Bash(ffmpeg:*)", "Bash(ffprobe:*)", "Bash(taki-video-finish:*)", "Bash(taki-video-stt:*)",
-        "Bash(cp:*)", "Bash(mv:*)", "Bash(ls:*)", "Bash(mkdir:*)", "Bash(unzip:*)", "Bash(curl:*)", "Bash(stat:*)",
+        "Bash(cp:*)", "Bash(mv:*)", "Bash(ls:*)", "Bash(mkdir:*)", "Bash(unzip:*)", "Bash(stat:*)",
       ],
       addDirs: [workdir, DOWNLOADS, UPLOAD_DIR],
       onStep: (s) => { log.push(s); flush(); },
@@ -202,12 +200,37 @@ export async function runVideoJob(jobId: string) {
   }
   running.delete(jobId);
   flush(true);
-  insert("model_usage", { biz_id: bizId, agent_key: "creative", provider: "claude_cli", model: r.model, tokens_in: r.usage.input, tokens_out: r.usage.output, tokens_cached: r.usage.cached, cost_micros: r.costMicros, latency_ms: r.durationMs, at: nowIso() });
+  insert("model_usage", { biz_id: bizId, agent_key: "creative", provider: "claude_cli", model, tokens_in: 0, tokens_out: 0, tokens_cached: 0, cost_micros: 0, latency_ms: Date.now() - t0, at: nowIso() });
+  const r = { structured, model, costMicros: 0 };
 
   const out = FlowResult.safeParse(r.structured);
   if (!out.success) return fail("failed", "Agent không trả kết quả đúng định dạng");
   update("creative_job", jobId, { model: r.model, cost_micros: r.costMicros });
   await completeVideoJob(jobId, out.data);
+}
+
+/** After a server restart: the Claude session keeps running in its Terminal window — wait for its result file. */
+export async function reattachVideoJob(jobId: string) {
+  const job = byId<Row>("creative_job", jobId);
+  if (!job?.workdir) return;
+  const fs = flowSettings(job.biz_id);
+  const tool = FLOW_TOOLS[(job.input as CreativeInput).tool];
+  const resultFile = join(job.workdir, "result.json");
+  const deadline = new Date(job.started_at ?? job.created_at).getTime() + (fs.timeoutMin ?? tool.minutes + 30) * 60_000;
+  update("creative_job", jobId, { step: "Máy chủ vừa khởi động lại — đang chờ kết quả từ cửa sổ Terminal" });
+  while (Date.now() < deadline) {
+    const cur = byId<Row>("creative_job", jobId);
+    if (!cur || cur.status !== "running") return;
+    if (existsSync(resultFile)) {
+      try {
+        const out = FlowResult.safeParse(JSON.parse(readFileSync(resultFile, "utf8")));
+        if (out.success) return completeVideoJob(jobId, out.data);
+      } catch { /* still being written */ }
+    }
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  update("creative_job", jobId, { status: "failed", error: "Hết thời gian chờ kết quả từ Terminal", step: null, ended_at: nowIso() });
+  emit(job.biz_id, "creative.updated", { jobId, status: "failed" });
 }
 
 /** Post-render half of a job: verify the file, register the asset, review, open the approval. */
@@ -327,32 +350,45 @@ export async function runDraftUpload(publishJobId: string) {
   emit(pj.biz_id, "post.published", { title: `Nháp trên ${channel.name}: ${ci.title}` });
 }
 
-// ---------------- Chrome profile check (is Claude in Chrome connected in this profile?) ----------------
-export async function verifyChromeProfile(bizId: string, channel: string, dir: string) {
-  const token = `chk${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  openInProfile(channel, dir, markerUrl(token));
-  await new Promise((r) => setTimeout(r, 4500));
-  const Out = z.object({ found: z.boolean(), deviceId: z.string(), browserName: z.string(), error: z.string() });
-  const r = await runClaudeAgent({
+// ---------------- Which connected browser is this Chrome profile? ----------------
+const Probe = z.object({ found: z.boolean(), deviceId: z.string(), browserName: z.string(), accountEmail: z.string(), error: z.string() });
+/**
+ * Claude in Chrome lists browsers as "Browser 1/2…" without profile names, and stale entries hang.
+ * Open the profile (so its extension is live), then ask each browser ON THIS COMPUTER which Google account
+ * it is signed into (myaccount.google.com) and match the profile's email. Result is cached in settings.
+ */
+export async function findProfileBrowser(bizId: string, channel: string, dir: string) {
+  const profile = listChromeProfiles().find((p) => p.channel === channel && p.dir === dir);
+  if (!profile) throw new AppError("NO_PROFILE", "Không thấy profile Chrome này trên máy");
+  openInProfile(channel, dir, FLOW_URL);
+  await new Promise((r) => setTimeout(r, 5000));
+  const target = profile.email ?? "";
+  const probeDir = join(DATA_DIR, "creative", "_probe");
+  mkdirSync(probeDir, { recursive: true });
+  const resultFile = join(probeDir, `${Date.now().toString(36)}.json`);
+  const structured = await runClaudeInTerminal({
+    title: `Kiểm tra profile Chrome "${profile.name}"`, model: modelFor(bizId, "creative", "small"), cwd: probeDir, resultFile, timeoutMs: 6 * 60_000,
     prompt: [
-      `Tìm trình duyệt đang có tab tiêu đề hoặc URL chứa "${token}".`,
-      "Gọi list_connected_browsers; với mỗi trình duyệt: select_browser rồi tabs_context_mcp. Thấy tab đó → found=true, deviceId + browserName của trình duyệt ấy, rồi đóng tab đó bằng tabs_close_mcp.",
-      "Không thấy ở đâu → found=false, deviceId=\"\", ghi lý do vào error. Không làm gì khác.",
+      `Kiểm tra trình duyệt (Claude in Chrome) của profile Chrome "${profile.name}"${target ? ` — đăng nhập Google bằng ${target}` : ""}.`,
+      "1) navigate (không truyền tabId) tới https://myaccount.google.com/ → get_page_text → đọc email Google đang đăng nhập.",
+      target ? `2) Không trùng ${target} → list_connected_browsers, select_browser từng trình duyệt và kiểm tra lại; bỏ qua trình duyệt treo.` : "2) Ghi lại email thấy được.",
+      `3) Ghi JSON vào ${resultFile} bằng Write: {"found": true|false, "deviceId": "<deviceId nếu biết, không thì chuỗi rỗng>", "browserName": "", "accountEmail": "", "error": ""}. Rồi đóng tab đã mở (tabs_close_mcp) và in "XONG — có thể đóng cửa sổ".`,
     ].join("\n"),
-    system: "Bạn chỉ kiểm tra kết nối Claude in Chrome của một profile Chrome. Không mở trang nào khác.",
-    model: modelFor(bizId, "creative", "small"), chrome: true, cwd: DATA_DIR, timeoutMs: 180_000, addDirs: [],
-    jsonSchema: Object.fromEntries(Object.entries(z.toJSONSchema(Out, { target: "draft-7" }) as Row).filter(([k]) => k !== "$schema")),
-    allowedTools: ["mcp__claude-in-chrome__list_connected_browsers", "mcp__claude-in-chrome__select_browser", "mcp__claude-in-chrome__switch_browser", "mcp__claude-in-chrome__tabs_context_mcp", "mcp__claude-in-chrome__tabs_close_mcp"],
+    system: "Bạn chỉ kiểm tra kết nối trình duyệt. Không bấm nút, không điền form, không đổi cài đặt nào.",
+    allowedTools: ["mcp__claude-in-chrome", "Write"], addDirs: [probeDir],
   });
-  const res = Out.parse(r.structured);
-  // Remember the device behind this profile: the Flow run tries it first.
-  const fs = flowSettings(bizId);
-  if (res.found && fs.chromeChannel === channel && fs.chromeProfileDir === dir) {
-    const cur = bizSettings(bizId) as any;
-    update("biz", bizId, { settings: { ...cur, flow: { ...(cur.flow ?? {}), browserDeviceId: res.deviceId, browserLabel: res.browserName } } });
+  const r = { structured };
+  const res = Probe.parse(r.structured);
+  if (res.found && res.deviceId) {
+    const fs = flowSettings(bizId);
+    if (fs.chromeChannel === channel && fs.chromeProfileDir === dir) {
+      const cur = bizSettings(bizId) as any;
+      update("biz", bizId, { settings: { ...cur, flow: { ...(cur.flow ?? {}), browserDeviceId: res.deviceId, browserLabel: `${res.browserName} · ${res.accountEmail || profile.name}` } } });
+    }
   }
   return res;
 }
+export const verifyChromeProfile = findProfileBrowser;
 
 // ---------------- Browser discovery (for the settings page) ----------------
 export async function detectBrowsers(bizId: string) {
