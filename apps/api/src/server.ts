@@ -60,7 +60,7 @@ async function main() {
   console.log(`  Jev (TypeSafe): ${jevEnabled() ? "LIVE" : "chế độ heuristic (thiếu TYPESAFE_API_KEY)"}`);
   const bizId = q.get<{ id: string }>("SELECT id FROM biz LIMIT 1")!.id;
   const eff = effectiveProvider(bizId);
-  console.log(`  Claude:         ${eff.provider === "claude_cli" ? `Claude Code CLI (${cliInfo().version}) — tài khoản đã đăng nhập` : eff.provider === "anthropic_api" ? "Claude API" : `sandbox${eff.reason ? ` — ${eff.reason}` : ""}`}`);
+  console.log(`  Claude:         ${eff.provider === "claude_cli" ? `Claude Code CLI (${cliInfo().version}) — tài khoản đã đăng nhập` : `sandbox${eff.reason ? ` — ${eff.reason}` : ""}`}`);
   console.log(`  Model:          small=${llmSettings(bizId).models.small} · medium=${llmSettings(bizId).models.medium} · large=${llmSettings(bizId).models.large}`);
   const conns = q.all<{ platform: string; mode: string }>("SELECT platform, mode FROM connection WHERE status = 'active'");
   console.log(`  Nền tảng:       ${conns.length ? conns.map((c) => `${c.platform}${c.mode === "live" ? "" : " (mô phỏng)"}`).join(", ") : "chưa kết nối — kênh chạy mô phỏng"}\n`);

@@ -120,10 +120,10 @@ export function coreRoutes(app: FastifyInstance) {
   });
 
   // ---------------- LLM provider & model selection ----------------
-  r.get("/v1/llm", ({ bizId }) => ({ settings: llmSettings(bizId), effective: effectiveProvider(bizId), cli: cliInfo(), apiKeyPresent: Boolean(process.env.ANTHROPIC_API_KEY), catalog: MODEL_CATALOG, defaults: DEFAULT_LLM }));
+  r.get("/v1/llm", ({ bizId }) => ({ settings: llmSettings(bizId), effective: effectiveProvider(bizId), cli: cliInfo(), catalog: MODEL_CATALOG, defaults: DEFAULT_LLM }));
   r.put("/v1/llm", ({ bizId, body, actor }) => {
     const ids = MODEL_CATALOG.map((m) => m.id) as [string, ...string[]];
-    const p = z.object({ provider: z.enum(["claude_cli", "anthropic_api", "sandbox"]).optional(), models: z.object({ small: z.enum(ids), medium: z.enum(ids), large: z.enum(ids) }).partial().optional(), effort: z.enum(["low", "medium", "high"]).optional() }).parse(body);
+    const p = z.object({ provider: z.enum(["claude_cli", "sandbox"]).optional(), models: z.object({ small: z.enum(ids), medium: z.enum(ids), large: z.enum(ids) }).partial().optional(), effort: z.enum(["low", "medium", "high"]).optional() }).parse(body);
     const cur = llmSettings(bizId);
     const next = { ...cur, ...p, models: { ...cur.models, ...(p.models ?? {}) } as Record<Tier, string> };
     const s = bizSettings(bizId);

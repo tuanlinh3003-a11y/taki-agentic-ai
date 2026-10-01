@@ -25,7 +25,6 @@
     "workspace:export": "tsx --env-file-if-exists=.env scripts/export-workspace.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.129.0",
     "@dotaka/agents": "workspace:*",
     "@dotaka/chat-engine": "workspace:*",
     "@dotaka/connectors": "workspace:*",

@@ -57,7 +57,7 @@ Sao chép `.env.example` → `.env`.
 | Thành phần | Không có key | Có key |
 |---|---|---|
 | **Jev** (`TYPESAFE_API_KEY`) | heuristic cùng định dạng câu trả lời, gắn nhãn "Jev·heuristic" | Jev thật (`jev-latest`) |
-| **Claude** | Mặc định dùng **tài khoản Claude đã đăng nhập** qua lệnh `claude` (Claude Code CLI) — không cần API key. Có thể chuyển sang Claude API hoặc sandbox trong Cài đặt | Chọn model theo tầng (mặc định nhỏ `claude-haiku-4-5`, vừa `claude-sonnet-5`, lớn `claude-opus-5`) và riêng từng agent |
+| **Claude** | **Mọi AI agent** (kể cả trợ lý Ngân Nguyệt, Creative Agent video Flow) chạy qua **Claude Code CLI** bằng tài khoản Claude đã đăng nhập (lệnh `claude`) — không dùng API key Anthropic, hệ thống không có đường gọi Claude API. Chỉ Jev dùng API riêng của TypeSafe. Có chế độ sandbox (không gọi AI) để thử quy trình | Chọn model theo tầng (mặc định nhỏ `claude-haiku-4-5`, vừa `claude-sonnet-5`, lớn `claude-opus-5`) và riêng từng agent |
 | **Meta / TikTok / Google Ads / Pancake / Zalo** | connector sandbox (số liệu mô phỏng) | cần làm connector thật + duyệt ứng dụng từng nền tảng |
 | **Telegram** (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) | ghi log | gửi cảnh báo/báo cáo sáng thật |
 

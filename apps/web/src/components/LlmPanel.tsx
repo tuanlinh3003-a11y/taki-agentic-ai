@@ -5,7 +5,6 @@ import { Badge, Button, Loading, cx, inputCls, useToast } from "./ui";
 
 const PROVIDERS = [
   { id: "claude_cli", label: "Tài khoản Claude (Claude Code CLI)", hint: "Dùng gói Claude Sếp đang đăng nhập trên máy — không cần API key. Chạy lệnh `claude` ở chế độ nền." },
-  { id: "anthropic_api", label: "Claude API (API key)", hint: "Tính phí theo token qua ANTHROPIC_API_KEY trong .env." },
   { id: "sandbox", label: "Sandbox (không gọi AI)", hint: "Bản nháp mẫu theo DNA — dùng để thử quy trình." },
 ] as const;
 const TIERS = [

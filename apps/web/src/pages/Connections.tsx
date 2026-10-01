@@ -276,7 +276,7 @@ function AiPanel({ p }: { p?: Platform }) {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-xl border border-line p-4">
           <p className="flex items-center gap-2 font-medium text-ink"><Bot className="h-4 w-4 text-orange-500" />Claude</p>
-          <p className="mt-1 text-sm text-muted">{p?.ai?.claude === "claude_cli" ? "Qua tài khoản Claude đã đăng nhập (Claude Code CLI)" : p?.ai?.claude === "anthropic_api" ? "Qua Claude API" : "Chưa bật — đang chạy sandbox"}</p>
+          <p className="mt-1 text-sm text-muted">{p?.ai?.claude === "claude_cli" ? "Qua tài khoản Claude đã đăng nhập (Claude Code CLI)" : "Chưa bật — đang chạy sandbox"}</p>
         </div>
         <div className="rounded-xl border border-line p-4">
           <p className="flex items-center gap-2 font-medium text-ink"><Sparkles className="h-4 w-4 text-violet-600" />Jev · System One</p>

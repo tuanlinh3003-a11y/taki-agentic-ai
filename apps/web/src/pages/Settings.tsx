@@ -131,7 +131,7 @@ export function Settings() {
               </div>
               <div className="space-y-2 rounded-xl border border-line p-4">
                 <div className="flex items-center justify-between"><p className="font-medium text-ink">Claude (agent soạn thảo)</p>{sys.llm.enabled ? <Badge tone="green">LIVE</Badge> : <Badge tone="amber">Sandbox</Badge>}</div>
-                <p className="text-sm text-muted">{sys.llm.provider === "claude_cli" ? "Qua tài khoản Claude đã đăng nhập (Claude Code CLI)" : sys.llm.provider === "anthropic_api" ? "Qua Claude API" : "Sandbox — chưa gọi AI"}</p>
+                <p className="text-sm text-muted">{sys.llm.provider === "claude_cli" ? "Qua tài khoản Claude đã đăng nhập (Claude Code CLI)" : "Sandbox — chưa gọi AI"}</p>
                 <p className="text-xs text-muted">Chọn nhà cung cấp và model ở thẻ "Model Claude" bên dưới.</p>
               </div>
               <p className="text-xs text-muted md:col-span-2">Đặt khóa trong file <code className="rounded bg-soft px-1">.env</code> ở thư mục dự án rồi khởi động lại API. Giao diện không bao giờ hiển thị giá trị khóa.</p>

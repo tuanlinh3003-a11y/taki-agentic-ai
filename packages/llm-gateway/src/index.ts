@@ -1,5 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { bizSettings, insert, q } from "@dotaka/db";
 import { AppError, logger } from "@dotaka/shared";
@@ -9,18 +7,19 @@ export { cliAvailable, cliInfo, followClaudeRun, runClaudeAgent, runClaudeInTerm
 
 /**
  * LLM Gateway (spec §16): the ONLY place that calls a language model.
- * Providers (chosen in Cài đặt → Chế độ AI, stored in biz settings):
- *  - claude_cli    (default) — the CEO's logged-in Claude Code account via `claude -p`, no API key.
- *  - anthropic_api — Claude API with ANTHROPIC_API_KEY.
- *  - sandbox       — deterministic drafts from the agent's own generator, offline.
+ * Every AI agent runs through Claude Code CLI — the CEO's logged-in Claude account via `claude -p`. There is
+ * deliberately NO Anthropic API path (no API key, no per-token billing). Only Jev (TypeSafe) uses its own API.
+ * Providers (Cài đặt → Chế độ AI, stored in biz settings):
+ *  - claude_cli (default) — Claude Code CLI.
+ *  - sandbox — deterministic drafts from the agent's own generator, offline (also the fallback when `claude` is missing).
  * Model per tier (small/medium/large) is configurable, and any agent can override it.
  * Every call: token budget check before, schema-validated output with up to 2 repair rounds,
  * a model_usage row after.
  */
 export type Tier = "small" | "medium" | "large";
-export type Provider = "claude_cli" | "anthropic_api" | "sandbox";
+export type Provider = "claude_cli" | "sandbox";
 
-/** Models offered in the UI. `id` is what we pass to `claude --model` / the API. */
+/** Models offered in the UI. `id` is what we pass to `claude --model`. */
 export const MODEL_CATALOG = [
   { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", note: "Nhanh, rẻ — phân loại, chat, tóm tắt" },
   { id: "claude-sonnet-5", label: "Claude Sonnet 5", note: "Cân bằng — viết nội dung, kịch bản" },
@@ -30,7 +29,7 @@ export const MODEL_CATALOG = [
 ] as const;
 
 export const DEFAULT_LLM = {
-  provider: (process.env.LLM_PROVIDER as Provider) ?? "claude_cli",
+  provider: (process.env.LLM_PROVIDER === "sandbox" ? "sandbox" : "claude_cli") as Provider,
   models: {
     small: process.env.LLM_MODEL_SMALL ?? "claude-haiku-4-5",
     medium: process.env.LLM_MODEL_MEDIUM ?? "claude-sonnet-5",
@@ -42,18 +41,17 @@ export type LlmSettings = typeof DEFAULT_LLM;
 
 export function llmSettings(bizId?: string): LlmSettings {
   const s = bizId ? ((bizSettings(bizId) as any).llm as Partial<LlmSettings> | undefined) : undefined;
-  return { ...DEFAULT_LLM, ...(s ?? {}), models: { ...DEFAULT_LLM.models, ...(s?.models ?? {}) } };
+  const merged = { ...DEFAULT_LLM, ...(s ?? {}), models: { ...DEFAULT_LLM.models, ...(s?.models ?? {}) } };
+  // Older settings may still say "anthropic_api" — that path no longer exists: everything runs on the CLI.
+  if (merged.provider !== "sandbox") merged.provider = "claude_cli";
+  return merged;
 }
 
 /** The provider actually used: falls back to sandbox when the chosen one is unavailable. */
 export function effectiveProvider(bizId?: string): { provider: Provider; reason?: string } {
   const want = llmSettings(bizId).provider;
   if (want === "claude_cli") return cliAvailable() ? { provider: "claude_cli" } : { provider: "sandbox", reason: "Không tìm thấy lệnh `claude` (Claude Code CLI) hoặc chưa đăng nhập" };
-  if (want === "anthropic_api") return apiKeyPresent() ? { provider: "anthropic_api" } : { provider: "sandbox", reason: "Thiếu ANTHROPIC_API_KEY" };
   return { provider: "sandbox" };
-}
-function apiKeyPresent() {
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 }
 /** Kept for callers that only need "is a real model on?" */
 export function llmEnabled(bizId?: string): boolean {
@@ -66,13 +64,6 @@ export function modelFor(bizId: string, agentKey: string, tier: Tier): string {
   const override = cfg?.limits?.model;
   return typeof override === "string" && override ? override : llmSettings(bizId).models[tier];
 }
-
-// USD per 1M tokens (input, output, cache read). For the CLI provider the CLI reports cost itself
-// (on a subscription this is an equivalent value, not a charge).
-const PRICES: Record<string, [number, number, number]> = {
-  "claude-fable-5-1": [10, 50, 1], "claude-opus-5-5": [4, 20, 0.2], "claude-opus-5": [5, 25, 0.5],
-  "claude-sonnet-5": [2, 10, 0.2], "claude-haiku-4-5": [1, 5, 0.1],
-};
 
 export interface GenerateRequest<T> {
   bizId: string;
@@ -132,10 +123,10 @@ export async function generate<T>(input: GenerateRequest<T>): Promise<GenerateRe
   let lastErr: unknown;
   while (true) {
     try {
-      return provider === "claude_cli" ? await viaCli(req, model) : await viaApi(req, model);
+      return await viaCli(req, model);
     } catch (e) {
       lastErr = e;
-      if (e instanceof BudgetExceeded || e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.BadRequestError) throw e;
+      if (e instanceof BudgetExceeded) throw e;
       tier = tier ? FALLBACK[tier] : null;
       if (!tier) break;
       const next = llmSettings(req.bizId).models[tier];
@@ -164,40 +155,6 @@ async function viaCli<T>(req: GenerateRequest<T>, model: string): Promise<Genera
     prompt = `${req.user}\n\nLẦN TRƯỚC ĐẦU RA SAI SCHEMA: ${check.error.message.slice(0, 1200)}\nHãy trả lại JSON đúng schema.`;
   }
   throw new AppError("SCHEMA_REPAIR_FAILED", "Đầu ra của Claude CLI sai schema sau 2 vòng sửa", 502);
-}
-
-// ---------------- Provider: Claude API ----------------
-let apiClient: Anthropic | null = null;
-async function viaApi<T>(req: GenerateRequest<T>, model: string): Promise<GenerateResult<T>> {
-  apiClient ??= new Anthropic({ maxRetries: 2, timeout: 120_000 });
-  const messages: Anthropic.MessageParam[] = [{ role: "user", content: req.user }];
-  const totals = { input: 0, output: 0, cached: 0 };
-  for (let round = 0; round < 3; round++) {
-    const started = Date.now();
-    const res = await apiClient.messages.parse({
-      model, max_tokens: req.maxTokens ?? 16000,
-      system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
-      messages,
-      output_config: { format: zodOutputFormat(req.schema as any), ...(model.includes("haiku") ? {} : { effort: llmSettings(req.bizId).effort }) } as any,
-    });
-    const u = res.usage;
-    const t = { input: u.input_tokens + (u.cache_creation_input_tokens ?? 0), output: u.output_tokens, cached: u.cache_read_input_tokens ?? 0 };
-    totals.input += t.input; totals.output += t.output; totals.cached += t.cached;
-    record(req, "anthropic_api", model, t, Date.now() - started, cost(model, t));
-    if (req.budget?.perRun && totals.input + totals.output > req.budget.perRun) throw new BudgetExceeded(`Task vượt trần ${req.budget.perRun} token/lần chạy.`);
-    if (res.stop_reason === "refusal") throw new Error("Model từ chối yêu cầu");
-    const parsed = (res as any).parsed_output as T | null;
-    const check = parsed ? req.schema.safeParse(parsed) : null;
-    if (check?.success) return { output: check.data, model, source: "claude", provider: "anthropic_api", usage: { ...totals, costMicros: cost(model, totals) } };
-    messages.push({ role: "assistant", content: res.content.map((b) => (b.type === "text" ? b.text : "")).join("") || "(trống)" });
-    messages.push({ role: "user", content: `Đầu ra chưa đúng schema: ${check ? check.error.message.slice(0, 1200) : "không parse được"}. Trả lại JSON đúng schema.` });
-  }
-  throw new AppError("SCHEMA_REPAIR_FAILED", "Model output failed schema after 2 repair rounds", 502);
-}
-
-function cost(model: string, t: { input: number; output: number; cached: number }): number {
-  const p = PRICES[model] ?? [3, 15, 0.3];
-  return Math.round(t.input * p[0] + t.output * p[1] + t.cached * p[2]); // $/1M tokens == micro-dollars per token
 }
 
 function record(req: { bizId: string; agentKey: string; taskRunId?: string }, provider: string, model: string, t: { input: number; output: number; cached: number }, latencyMs: number, costMicros: number) {
