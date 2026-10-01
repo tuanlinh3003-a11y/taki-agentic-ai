@@ -6,7 +6,7 @@ Hệ thống AI Agent vận hành marketing & bán hàng cho **TAKI Group / TAKI
 
 ## Cài trên máy mới (giữ nguyên giao diện & chức năng)
 
-Yêu cầu: **Node.js 24+** (`.nvmrc`), **Git**, **Claude Code CLI** đã đăng nhập (`claude`). Tuỳ chọn: **PostgreSQL** (để chạy ZL-CRM/Zalo), **Python 3 + ffmpeg** (hậu kỳ video Flow). Đã thử trên macOS; Linux tương tự.
+Yêu cầu: **Node.js 24+** (`.nvmrc`), **Git**, **Claude Code CLI** đã đăng nhập (`claude`). Tuỳ chọn: **PostgreSQL** (để chạy ZL-CRM/Zalo), **Google Chrome + Python 3 + ffmpeg** (video Flow). Đã thử trên macOS; Linux tương tự.
 
 **Máy Mac mới tinh** — cài công cụ nền (1 lần, mở Terminal):
 
@@ -84,14 +84,17 @@ Mọi agent gọi Claude đều nhận lớp **DNA** (`taki-dna` + references, h
 
 ## Sản xuất video Google Flow (Creative Agent)
 
-Trang **Sản xuất video Flow** chạy 3 skill Flow của phòng MKT (`flow-review-do-an-vat`, `flow-cooking-director-video`, `flow-cinematic-short-film`) qua `claude -p --chrome` trên Chrome đã đăng nhập Google Flow:
+Trang **Sản xuất video Flow** chạy 3 skill Flow của phòng MKT (`flow-review-do-an-vat`, `flow-cooking-director-video`, `flow-cinematic-short-film`) **bên trong đúng Tool Flow của skill** (vd. "Review Đồ Ăn Vặt AI V6"), hoàn toàn tự động:
 
-1. Chọn công cụ + điền thông tin + ảnh → xác nhận (tốn tín dụng Flow, agent dùng Chrome ~35–50 phút, mỗi lần 1 job).
-2. Agent vận hành công cụ Flow, tải clip từ `~/Downloads`, soát lời thoại (`taki-video-stt`, faster-whisper), hậu kỳ bằng `taki-video-finish` (ffmpeg + Pillow vì ffmpeg máy không có libass).
-3. Hệ thống tự kiểm file (ffprobe), đăng ký video, Review (thương hiệu TAKI: Jev + Kiểm duyệt MKT) → hộp **Duyệt**.
+- **Chrome Flow**: một cửa sổ Chrome riêng (`data/flow-chrome`, cổng DevTools 9333, cất ở mép phải màn hình) mang sẵn đăng nhập Google của profile Sếp chọn — chép từ profile đó, không đụng tới Chrome đang dùng. Nếu Google không nhận bản sao, Chrome Flow mở trang đăng nhập để đăng nhập 1 lần.
+- **Agent**: `claude -p` + **Playwright MCP** (`@playwright/mcp`, gắn vào Chrome Flow qua CDP). Playwright thao tác được bên trong iframe sandbox của Tool Flow (Claude in Chrome thì không), chạy ngầm không hỏi quyền, sống sót khi API khởi động lại (tự nối lại nhật ký + kết quả).
+
+1. Chọn công cụ + điền thông tin + ảnh (Tool review cần ảnh bao bì + ảnh người review; thiếu thì agent tự tạo ảnh trên Flow) → xác nhận (tốn tín dụng Flow, ~35–50 phút, mỗi lần 1 job).
+2. Agent mở thẳng link Tool (cấu hình trong `FLOW_TOOLS` / `settings.flow.toolUrls`), chạy đủ các bước của Tool, tải clip vào thư mục job, soát lời thoại (`taki-video-stt`, faster-whisper), hậu kỳ bằng `taki-video-finish` (ffmpeg + Pillow vì ffmpeg máy không có libass).
+3. Hệ thống tự kiểm file (ffprobe), đăng ký video, Review (thương hiệu TAKI: Jev + Kiểm duyệt MKT) → hộp **Duyệt**; thông báo macOS khi xong/lỗi.
 4. Duyệt → đăng **bản nháp** lên kênh đã chọn (hiện connector sandbox; bản thật: TikTok inbox draft, Facebook video chưa công khai).
 
-Quyền của agent chỉ gồm công cụ Chrome, đọc/ghi file trong thư mục job + Downloads, và các lệnh `ffmpeg`, `ffprobe`, `taki-video-finish`, `taki-video-stt`, `cp/mv/ls/mkdir/unzip/curl`. Kênh "khác/khách hàng" không nạp DNA TAKI.
+Quyền của agent chỉ gồm công cụ trình duyệt Playwright (Chrome Flow), đọc/ghi file trong thư mục job + ảnh tải lên, và các lệnh `ffmpeg`, `ffprobe`, `taki-flow-save` (lưu clip từ trang Tool — nút tải của Tool bị Chrome chặn), `taki-video-finish`, `taki-video-stt`, `cp/mv/ls/mkdir/unzip/stat`. Không đăng nhập hộ, không nhập mật khẩu, không mua tín dụng. Kênh "khác/khách hàng" không nạp DNA TAKI.
 
 ## Jev làm gì trong hệ thống
 

@@ -1,6 +1,6 @@
-import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { AppError } from "@dotaka/shared";
 
@@ -145,7 +145,8 @@ export interface AgentRunResult {
 }
 
 function describeTool(name: string, input: any): string {
-  const short = name.replace(/^mcp__claude-in-chrome__/, "chrome.");
+  const short = name.replace(/^mcp__claude-in-chrome__/, "chrome.").replace(/^mcp__flow__browser_/, "flow.");
+  if (input?.element) return `${short} "${String(input.element).slice(0, 70)}"${input.text ? ` ← "${String(input.text).slice(0, 50)}"` : ""}`;
   if (input?.url) return `${short} ${input.url}`;
   if (input?.command) return `${short}: ${String(input.command).slice(0, 140)}`;
   if (input?.action) return `${short} ${input.action}${input.text ? ` "${String(input.text).slice(0, 60)}"` : ""}`;
@@ -231,6 +232,9 @@ export interface TerminalRunOptions {
   timeoutMs: number;
   signal?: AbortSignal;
   onStep?: (step: { at: string; kind: "tool" | "text"; text: string }) => void;
+  /** MCP servers for the run (e.g. Playwright attached to Chrome Flow). Given → plain headless `claude -p`
+   *  (MCP tools are allowed by --allowedTools; no Claude in Chrome, no pseudo-terminal needed). */
+  mcpConfig?: object;
 }
 
 /** Mark a folder as trusted for Claude Code (the CEO's own project data folder) so no dialog appears. */
@@ -256,8 +260,7 @@ async function ensureTrusted(dir: string) {
  */
 export async function runClaudeInTerminal(o: TerminalRunOptions): Promise<unknown> {
   if (process.platform !== "darwin" && process.platform !== "linux") throw new AppError("NOT_SUPPORTED", "Chạy trình duyệt tự động hỗ trợ macOS/Linux");
-  const { writeFileSync, existsSync, readFileSync, rmSync, readdirSync, statSync } = await import("node:fs");
-  const { homedir } = await import("node:os");
+  const { writeFileSync, rmSync } = await import("node:fs");
   const { randomUUID } = await import("node:crypto");
   mkdirSync(o.cwd, { recursive: true });
   await ensureTrusted(o.cwd);
@@ -270,29 +273,64 @@ export async function runClaudeInTerminal(o: TerminalRunOptions): Promise<unknow
   let bin = BIN;
   try { bin = execFileSync("/bin/sh", ["-lc", `command -v '${BIN.replace(/'/g, "")}'`], { encoding: "utf8", env: childEnv() }).trim() || BIN; } catch { /* keep BIN */ }
   const sessionId = randomUUID();
-  // Prompt FIRST: --allowedTools / --add-dir are variadic and would swallow a trailing positional prompt.
-  const claudeArgs = [
-    o.prompt, "--chrome", "--model", o.model, "--permission-mode", "auto", "--session-id", sessionId, "--name", `TAKI · ${o.title}`,
-    "--append-system-prompt-file", systemFile, "--allowedTools", ...o.allowedTools, ...o.addDirs.flatMap((d) => ["--add-dir", d]),
-  ];
   const env: NodeJS.ProcessEnv = { ...childEnv(), TERM: "xterm-256color", COLUMNS: "160", LINES: "50", CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1" };
   delete env.CLAUDE_CODE_CHILD_SESSION; delete env.CLAUDE_CODE_ENTRYPOINT; delete env.CLAUDE_CODE_SSE_PORT;
-  // `script` gives the TUI a real terminal; its stdin must be a pipe (Node's stdio pipes are sockets), so feed it
-  // from a never-ending `sleep` via process substitution. Whole process group is killed when we are done.
-  const ptyCmd = process.platform === "darwin"
-    ? 'exec script -q /dev/null "$@" < <(exec sleep 2147483647)'
-    : 'exec script -qec "$(printf "%q " "$@")" /dev/null < <(exec sleep 2147483647)';
-  const child = spawn("/bin/bash", ["-c", ptyCmd, "bash", bin, ...claudeArgs], { cwd: o.cwd, env, stdio: ["ignore", "ignore", "ignore"], detached: true });
+  let child: ChildProcess;
+  if (o.mcpConfig) {
+    const mcpFile = join(runDir, "mcp.json");
+    writeFileSync(mcpFile, JSON.stringify(o.mcpConfig));
+    // Prompt FIRST: --allowedTools / --add-dir are variadic and would swallow a trailing positional prompt.
+    const args = [
+      o.prompt, "-p", "--model", o.model, "--permission-mode", "dontAsk", "--session-id", sessionId, "--no-chrome",
+      "--mcp-config", mcpFile, "--strict-mcp-config", "--setting-sources", "", "--append-system-prompt-file", systemFile,
+      "--allowedTools", ...o.allowedTools, ...o.addDirs.flatMap((d) => ["--add-dir", d]),
+    ];
+    // Detached: survives an API restart (the job is re-attached through resultFile).
+    child = spawn(bin, args, { cwd: o.cwd, env, stdio: ["ignore", "ignore", "ignore"], detached: true });
+  } else {
+    // Prompt FIRST: --allowedTools / --add-dir are variadic and would swallow a trailing positional prompt.
+    const claudeArgs = [
+      o.prompt, "--chrome", "--model", o.model, "--permission-mode", "auto", "--session-id", sessionId, "--name", `TAKI · ${o.title}`,
+      "--append-system-prompt-file", systemFile, "--allowedTools", ...o.allowedTools, ...o.addDirs.flatMap((d) => ["--add-dir", d]),
+    ];
+    // `script` gives the TUI a real terminal; its stdin must be a pipe (Node's stdio pipes are sockets), so feed it
+    // from a never-ending `sleep` via process substitution. Whole process group is killed when we are done.
+    const ptyCmd = process.platform === "darwin"
+      ? 'exec script -q /dev/null "$@" < <(exec sleep 2147483647)'
+      : 'exec script -qec "$(printf "%q " "$@")" /dev/null < <(exec sleep 2147483647)';
+    child = spawn("/bin/bash", ["-c", ptyCmd, "bash", bin, ...claudeArgs], { cwd: o.cwd, env, stdio: ["ignore", "ignore", "ignore"], detached: true });
+  }
+  writeFileSync(join(runDir, "session.json"), JSON.stringify({ sessionId, pid: child.pid, startedAt: new Date().toISOString() }));
   const stop = () => { try { process.kill(-child.pid!, "SIGTERM"); } catch { /* gone */ } setTimeout(() => { try { process.kill(-child.pid!, "SIGKILL"); } catch { /* gone */ } }, 3000); };
   let exited = false;
   child.on("exit", () => { exited = true; });
 
-  // Live progress from the transcript of this session.
-  const projects = join(homedir(), ".claude", "projects");
+  const readSteps = transcriptReader(sessionId, o.onStep);
   const startedAt = Date.now();
+
+  o.onStep?.({ at: new Date().toISOString(), kind: "text", text: "Claude đang chạy ngầm — không cần thao tác" });
+  try {
+    while (true) {
+      if (o.signal?.aborted) throw new AppError("CANCELLED", "Đã hủy", 499);
+      if (Date.now() - startedAt > o.timeoutMs) throw new AppError("AGENT_TIMEOUT", `Quá ${Math.round(o.timeoutMs / 60000)} phút chưa có kết quả`, 504);
+      try { readSteps(); } catch { /* transcript mid-write */ }
+      if (existsSync(o.resultFile)) {
+        try { return JSON.parse(readFileSync(o.resultFile, "utf8")); } catch { /* still being written */ }
+      }
+      if (exited) throw new AppError("AGENT_EXITED", "Phiên Claude kết thúc mà không ghi kết quả", 502);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  } finally {
+    stop();
+  }
+}
+
+/** Incremental reader of a Claude session transcript → onStep events (tool calls + text). */
+function transcriptReader(sessionId: string, onStep?: TerminalRunOptions["onStep"]) {
+  const projects = join(homedir(), ".claude", "projects");
   let transcript: string | null = null;
   let offset = 0;
-  const readSteps = () => {
+  return () => {
     if (!transcript) {
       try {
         for (const d of readdirSync(projects)) {
@@ -312,25 +350,33 @@ export async function runClaudeInTerminal(o: TerminalRunOptions): Promise<unknow
       try { ev = JSON.parse(line); } catch { continue; }
       if (ev.type !== "assistant") continue;
       for (const c of ev.message?.content ?? []) {
-        if (c.type === "tool_use") o.onStep?.({ at: new Date().toISOString(), kind: "tool", text: describeTool(c.name, c.input) });
-        else if (c.type === "text" && c.text?.trim()) o.onStep?.({ at: new Date().toISOString(), kind: "text", text: c.text.trim().slice(0, 300) });
+        if (c.type === "tool_use") onStep?.({ at: ev.timestamp ?? new Date().toISOString(), kind: "tool", text: describeTool(c.name, c.input) });
+        else if (c.type === "text" && c.text?.trim()) onStep?.({ at: ev.timestamp ?? new Date().toISOString(), kind: "text", text: c.text.trim().slice(0, 300) });
       }
     }
   };
+}
 
-  o.onStep?.({ at: new Date().toISOString(), kind: "text", text: "Claude đang chạy ngầm (chế độ tự duyệt an toàn) — không cần thao tác" });
-  try {
-    while (true) {
-      if (o.signal?.aborted) throw new AppError("CANCELLED", "Đã hủy", 499);
-      if (Date.now() - startedAt > o.timeoutMs) throw new AppError("AGENT_TIMEOUT", `Quá ${Math.round(o.timeoutMs / 60000)} phút chưa có kết quả`, 504);
-      try { readSteps(); } catch { /* transcript mid-write */ }
-      if (existsSync(o.resultFile)) {
-        try { return JSON.parse(readFileSync(o.resultFile, "utf8")); } catch { /* still being written */ }
-      }
-      if (exited) throw new AppError("AGENT_EXITED", "Phiên Claude kết thúc mà không ghi kết quả", 502);
-      await new Promise((r) => setTimeout(r, 3000));
+/**
+ * Re-attach to a detached run after an API restart: keep streaming its transcript and wait for resultFile.
+ * `skipSteps` = steps already stored, so the log continues without duplicates.
+ */
+export async function followClaudeRun(o: { resultFile: string; deadline: number; onStep?: TerminalRunOptions["onStep"]; skipSteps?: number; isActive?: () => boolean }): Promise<unknown | null> {
+  let session: { sessionId: string; pid?: number } | null = null;
+  try { session = JSON.parse(readFileSync(join(dirname(o.resultFile), ".taki-run", "session.json"), "utf8")); } catch { /* older run */ }
+  let skip = o.skipSteps ?? 0;
+  const read = session ? transcriptReader(session.sessionId, (s) => { if (skip > 0) skip--; else o.onStep?.(s); }) : () => {};
+  const alive = () => { if (!session?.pid) return true; try { process.kill(session.pid, 0); return true; } catch { return false; } };
+  let deadAt = 0;
+  while (Date.now() < o.deadline) {
+    if (o.isActive && !o.isActive()) return null;
+    try { read(); } catch { /* mid-write */ }
+    if (existsSync(o.resultFile)) {
+      try { return JSON.parse(readFileSync(o.resultFile, "utf8")); } catch { /* still being written */ }
     }
-  } finally {
-    stop();
+    // Agent process gone and no result for 30s → it ended without writing one.
+    if (!alive()) { deadAt ||= Date.now(); if (Date.now() - deadAt > 30_000) throw new AppError("AGENT_EXITED", "Phiên Claude kết thúc mà không ghi kết quả", 502); }
+    await new Promise((r) => setTimeout(r, 3000));
   }
+  throw new AppError("AGENT_TIMEOUT", "Hết thời gian chờ kết quả từ agent", 504);
 }

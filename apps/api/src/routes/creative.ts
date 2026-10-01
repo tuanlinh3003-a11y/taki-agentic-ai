@@ -4,8 +4,8 @@ import { basename, join } from "node:path";
 import { z } from "zod";
 import { audit, bizSettings, byId, defaultBizId, q, update, type Row } from "@dotaka/db";
 import {
-  CLAUDE_EXTENSION_URL, FLOW_TOOLS, FLOW_URL, UPLOAD_DIR, cancelVideoJob, detectBrowsers, flowSettings, listChromeProfiles, markerTitle, openInProfile,
-  profileAvatarPath, startVideoJob, verifyChromeProfile,
+  FLOW_TOOLS, FLOW_URL, UPLOAD_DIR, cancelVideoJob, connectFlowProfile, flowBrowserStatus, flowSettings, listChromeProfiles, openFlowLogin, openInProfile,
+  profileAvatarPath, setWindowState, startVideoJob, toolUrlFor,
 } from "@dotaka/orchestrator";
 import { AppError, uuidv7 } from "@dotaka/shared";
 import { routes } from "../http.ts";
@@ -14,13 +14,14 @@ export function creativeRoutes(app: FastifyInstance) {
   const r = routes(app);
 
   r.get("/v1/creative/tools", ({ bizId }) => Object.entries(FLOW_TOOLS).map(([key, t]) => ({
-    key, ...t, skillVersion: q.get<Row>("SELECT version FROM skill WHERE biz_id = ? AND key = ?", bizId, t.skill)?.version ?? null,
+    key, ...t, toolUrl: toolUrlFor(flowSettings(bizId), key), skillVersion: q.get<Row>("SELECT version FROM skill WHERE biz_id = ? AND key = ?", bizId, t.skill)?.version ?? null,
   })));
   r.get("/v1/creative/settings", ({ bizId }) => flowSettings(bizId));
   r.put("/v1/creative/settings", ({ bizId, body, actor }) => {
     const p = z.object({
       browserDeviceId: z.string().nullable().optional(), browserLabel: z.string().nullable().optional(), timeoutMin: z.number().int().min(15).max(180).optional(),
       chromeChannel: z.string().nullable().optional(), chromeProfileDir: z.string().nullable().optional(), chromeProfileName: z.string().nullable().optional(), chromeProfileEmail: z.string().nullable().optional(),
+      toolUrls: z.record(z.string(), z.string().regex(/^https:\/\/(flow\.google\.com|labs\.google)\/.+\/tool\/[\w-]+/, "Link Tool Flow không hợp lệ")).optional(),
     }).parse(body);
     // Picking a new profile forgets the old device mapping (re-learned by "Kiểm tra kết nối" or the first run).
     if (p.chromeProfileDir !== undefined && p.browserDeviceId === undefined) { p.browserDeviceId = null; p.browserLabel = null; }
@@ -30,19 +31,30 @@ export function creativeRoutes(app: FastifyInstance) {
     audit(bizId, actor, "creative.settings_changed", { type: "biz", id: bizId }, flow);
     return flow;
   });
-  r.post("/v1/creative/browsers", async ({ bizId }) => detectBrowsers(bizId));
+  // ---- Chrome Flow: the dedicated Chrome the agent drives (Playwright) ----
+  r.get("/v1/creative/flow-browser", () => flowBrowserStatus());
+  r.post("/v1/creative/flow-browser/login", async ({ bizId }) => {
+    const fs = flowSettings(bizId);
+    await openFlowLogin({ channel: fs.chromeChannel, dir: fs.chromeProfileDir });
+    return { ok: true };
+  });
+  r.post("/v1/creative/flow-browser/window", async ({ body }) => {
+    const p = z.object({ state: z.enum(["parked", "normal"]) }).parse(body);
+    await setWindowState(p.state);
+    return { ok: true };
+  });
 
   // ---- Chrome profiles: every profile on this machine; pick the one logged into Flow ----
-  r.get("/v1/creative/chrome-profiles", () => ({ profiles: listChromeProfiles(), extensionUrl: CLAUDE_EXTENSION_URL, flowUrl: FLOW_URL }));
+  r.get("/v1/creative/chrome-profiles", () => ({ profiles: listChromeProfiles(), flowUrl: FLOW_URL }));
   r.post("/v1/creative/chrome-profiles/open", ({ body, actor, bizId }) => {
-    const p = z.object({ channel: z.string(), dir: z.string(), target: z.enum(["flow", "extension"]) }).parse(body);
-    openInProfile(p.channel, p.dir, p.target === "flow" ? FLOW_URL : CLAUDE_EXTENSION_URL);
+    const p = z.object({ channel: z.string(), dir: z.string(), target: z.enum(["flow"]) }).parse(body);
+    openInProfile(p.channel, p.dir, FLOW_URL);
     audit(bizId, actor, "creative.chrome_profile_opened", undefined, { dir: p.dir, target: p.target });
     return { ok: true };
   });
   r.post("/v1/creative/chrome-profiles/verify", ({ bizId, body }) => {
     const p = z.object({ channel: z.string(), dir: z.string() }).parse(body);
-    return verifyChromeProfile(bizId, p.channel, p.dir);
+    return connectFlowProfile(bizId, p.channel, p.dir);
   });
   app.get("/v1/creative/chrome-profiles/avatar", async (req, reply) => {
     const { channel, dir } = req.query as Row;
@@ -51,13 +63,6 @@ export function creativeRoutes(app: FastifyInstance) {
     reply.type("image/png").header("cache-control", "max-age=3600");
     return reply.send(createReadStream(file));
   });
-  // Marker page opened inside the chosen profile so the agent can recognise that exact browser.
-  app.get("/v1/creative/marker/:token", async (req, reply) => {
-    const token = String((req.params as Row).token).replace(/[^a-zA-Z0-9]/g, "").slice(0, 40);
-    reply.type("text/html; charset=utf-8");
-    return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>${markerTitle(token)}</title></head><body style="font:16px system-ui;padding:40px;color:#334155"><h2>TAKI Agentic AI</h2><p>Tab nhận diện profile Chrome cho Flow (${token}). Agent sẽ tự đóng tab này.</p></body></html>`;
-  });
-
   r.get("/v1/creative/jobs", ({ bizId }) => q.all("SELECT id, tool, title, status, step, error, asset_id, content_item_id, model, cost_micros, started_at, ended_at, created_at FROM creative_job WHERE biz_id = ? ORDER BY created_at DESC LIMIT 50", bizId));
   r.get("/v1/creative/jobs/:id", ({ bizId, params }) => {
     const j = byId<Row>("creative_job", params.id);

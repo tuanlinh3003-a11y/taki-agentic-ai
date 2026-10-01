@@ -97,7 +97,9 @@ if (!args.has("--no-video")) {
         writeFileSync(p, `#!/bin/sh\n# TAKI Agentic AI: ${desc}.\nexec "${vpy}" "${join(ROOT, "tools/video", file)}" "$@"\n`);
         chmodSync(p, 0o755);
       }
-      ok(`Lệnh taki-video-finish / taki-video-stt trong ${bin}`);
+      writeFileSync(join(bin, "taki-flow-save"), `#!/bin/sh\n# TAKI Agentic AI: save Flow Tool clips from Chrome Flow.\nexec "${process.execPath}" "${join(ROOT, "packages/orchestrator/bin/flow-save.mjs")}" "$@"\n`);
+      chmodSync(join(bin, "taki-flow-save"), 0o755);
+      ok(`Lệnh taki-video-finish / taki-video-stt / taki-flow-save trong ${bin}`);
       if (!(process.env.PATH ?? "").split(":").includes(bin)) notes.push(`Thêm ${bin} vào PATH (vd: echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc).`);
     }
   }

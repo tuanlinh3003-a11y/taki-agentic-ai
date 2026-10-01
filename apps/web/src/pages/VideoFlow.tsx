@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Clapperboard, Film, Globe, ImagePlus, Loader2, Play, Square, Trash2, UtensilsCrossed } from "lucide-react";
+import { Clapperboard, ExternalLink, Film, Globe, ImagePlus, Loader2, Play, Square, Trash2, UtensilsCrossed } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { timeAgo } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Loading, Modal, PageHeader, PlatformIcon, cx, inputCls, useToast } from "../components/ui";
@@ -11,7 +11,8 @@ const STATUS: Record<string, [string, any]> = {
   approved: ["Đã duyệt", "blue"], drafted: ["Đã lên nháp kênh", "green"],
   failed: ["Lỗi", "red"], blocked: ["Bị chặn", "amber"], cancelled: ["Đã hủy", "gray"],
 };
-const ROLES = ["Sản phẩm", "Nhân vật / người dẫn", "Nhân vật 2", "Bối cảnh / góc bếp", "Bao bì / đạo cụ", "Phong cách"];
+// Order = default role for the 1st, 2nd… uploaded image. Names map onto the Tool's slots (A nhân vật, B bao bì, I bên trong, E bối cảnh).
+const ROLES = ["Bao bì / sản phẩm", "Nhân vật / người review", "Bên trong sản phẩm", "Bối cảnh / góc bếp", "Nhân vật 2", "Phong cách"];
 const CHANNELS = ["tiktok", "facebook", "instagram"];
 
 export function VideoFlow() {
@@ -20,6 +21,7 @@ export function VideoFlow() {
   const settings = useApi<any>("creative/settings");
   const { data: sys } = useApi<any>("system");
   const jobs = useApi<any[]>("creative/jobs", ["creative.", "approval."]);
+  const fb = useApi<any>("creative/flow-browser", ["creative."]);
   const [selected, setSelected] = useState<string | null>(null);
   const [pickBrowser, setPickBrowser] = useState(false);
   const toast = useToast();
@@ -52,7 +54,7 @@ export function VideoFlow() {
     try {
       const { images, ...rest } = form;
       const j = await api.post("creative/jobs", { ...rest, durationSec: Number(form.durationSec) || undefined, images: images.map((i: any) => ({ path: i.path, role: i.role })), product: form.product || undefined, voice: form.voice || undefined, hookTitle: form.hookTitle || undefined, cta: form.cta || undefined });
-      toast("Đã đưa vào hàng đợi sản xuất. Đừng đóng Chrome trong lúc agent làm việc.", "info");
+      toast("Đã đưa vào hàng đợi. Agent chạy ngầm trong Chrome Flow — Sếp sẽ nhận thông báo khi video xong.", "info");
       setConfirm(false);
       setSelected(j.id);
       jobs.reload();
@@ -60,20 +62,25 @@ export function VideoFlow() {
   };
 
   const tool = tools.data?.find((t) => t.key === form.tool);
-  const hasBrowser = !!(settings.data?.chromeProfileDir || settings.data?.browserDeviceId);
+  const hasBrowser = !!settings.data?.chromeProfileDir;
+  const fbAccount = fb.data?.accounts?.includes(settings.data?.chromeProfileEmail) ? settings.data.chromeProfileEmail : fb.data?.accounts?.[0];
+  const showFlow = async (state: "normal" | "parked") => { try { await api.post("creative/flow-browser/window", { state }); } catch (e: any) { toast(e.message, "err"); } };
+  const login = async () => { try { await api.post("creative/flow-browser/login"); toast("Đã mở Chrome Flow ở trang đăng nhập Google — Sếp đăng nhập 1 lần", "info"); fb.reload(); } catch (e: any) { toast(e.message, "err"); } };
   const ready = hasBrowser && sys?.llm?.provider === "claude_cli";
   const current = selected ?? jobs.data?.[0]?.id ?? null;
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Sản xuất video Flow" subtitle="Creative Agent chạy skill Flow của phòng MKT trên Chrome của Sếp: tạo video trên Google Flow, ghép + chèn phụ đề, rồi gửi duyệt và đăng nháp lên kênh." />
+      <PageHeader title="Sản xuất video Flow" subtitle="Creative Agent chạy skill Flow của phòng MKT ngay trong Tool Flow của skill (Chrome Flow chạy ngầm): tạo video, ghép + chèn phụ đề, rồi gửi duyệt và đăng nháp lên kênh." />
 
       <div className={cx("flex flex-wrap items-center gap-3 rounded-2xl border p-4 text-sm", ready ? "border-emerald-500/30 bg-emerald-500/5" : "border-amber-500/30 bg-amber-500/10")}>
         <Globe className="h-5 w-5" />
-        <span>Chrome cho Flow: {settings.data?.chromeProfileDir ? <b>{settings.data.chromeProfileName}{settings.data.chromeProfileEmail ? ` · ${settings.data.chromeProfileEmail}` : ""}</b> : settings.data?.browserDeviceId ? <b>{settings.data.browserLabel ?? settings.data.browserDeviceId.slice(0, 8)}</b> : <b className="text-amber-700 dark:text-amber-300">chưa chọn</b>}</span>
+        <span>Tài khoản Flow: {settings.data?.chromeProfileDir ? <b>{settings.data.chromeProfileName}{settings.data.chromeProfileEmail ? ` · ${settings.data.chromeProfileEmail}` : ""}</b> : <b className="text-amber-700 dark:text-amber-300">chưa chọn profile</b>}</span>
+        <span>· Chrome Flow: {!fb.data ? "…" : fbAccount ? <Badge tone="green">đã đăng nhập {fbAccount}</Badge> : fb.data.running ? <Badge tone="amber">chưa đăng nhập</Badge> : <Badge>tự mở khi chạy</Badge>}</span>
         <span>· Claude: {sys?.llm?.provider === "claude_cli" ? <Badge tone="green">tài khoản CLI</Badge> : <Badge tone="amber">cần chế độ tài khoản Claude</Badge>}</span>
         <Button size="sm" onClick={() => setPickBrowser(true)}>{hasBrowser ? "Đổi profile Chrome" : "Chọn profile Chrome"}</Button>
-        <span className="text-xs text-muted">Profile đó phải đăng nhập Google Flow và có Claude in Chrome. Tạo video chạy ngầm hoàn toàn, chỉ báo khi xong.</span>
+        {fb.data?.running && (fbAccount ? <><Button size="sm" variant="ghost" onClick={() => showFlow("normal")}>Xem Chrome Flow</Button><Button size="sm" variant="ghost" onClick={() => showFlow("parked")}>Cất Chrome Flow</Button></> : <Button size="sm" variant="soft" onClick={login}>Đăng nhập Chrome Flow</Button>)}
+        <span className="w-full text-xs text-muted">Chrome Flow là cửa sổ Chrome riêng (cất ở mép phải màn hình) mang sẵn đăng nhập của profile đã chọn — AI tự bấm bên trong Tool Flow, không đụng tới Chrome Sếp đang dùng. Không cần bấm gì, chỉ có thông báo khi video xong.</span>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
@@ -91,7 +98,12 @@ export function VideoFlow() {
                 );
               })}
             </div>
-            {tool && <p className="rounded-xl bg-soft p-3 text-xs text-muted">Cần: {tool.hint}</p>}
+            {tool && (
+              <div className="space-y-1 rounded-xl bg-soft p-3 text-xs text-muted">
+                <p>Cần: {tool.hint}</p>
+                <p>Tool Flow: {tool.toolUrl ? <a href={tool.toolUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600">{tool.label}<ExternalLink className="h-3 w-3" /></a> : <span>agent tự tìm "{tool.label}" trong mục Tools của Flow</span>}</p>
+              </div>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Tên video"><input className={inputCls} value={form.title} onChange={(e) => set({ title: e.target.value })} placeholder="Review bánh tráng trộn Tây Ninh" /></Field>
               <Field label="Thương hiệu / kênh" hint={form.brand === "taki" ? "Áp DNA TAKI (giọng, claim cấm)" : "Kênh affiliate/khách: không dùng giọng TAKI"}>
@@ -99,7 +111,7 @@ export function VideoFlow() {
               </Field>
               <Field label="Sản phẩm"><input className={inputCls} value={form.product} onChange={(e) => set({ product: e.target.value })} /></Field>
               <Field label="Thời lượng (giây)" hint={`${Math.max(1, Math.ceil((Number(form.durationSec) || 8) / 8))} cảnh × 8 giây`}><input type="number" className={inputCls} value={form.durationSec} onChange={(e) => set({ durationSec: e.target.value })} /></Field>
-              <Field label="Model Veo trên Flow" hint="Lite rẻ nhất (≈10 credit/cảnh) · Quality đẹp nhất, tốn credit hơn">
+              <Field label="Model Veo (nếu Tool cho chọn)" hint="Lite rẻ nhất · Quality đẹp nhất, tốn credit hơn">
                 <select className={inputCls} value={form.veoModel} onChange={(e) => set({ veoModel: e.target.value })}>{["Veo 3.1 - Lite", "Veo 3.1 - Fast", "Veo 3.1 - Quality"].map((m) => <option key={m} value={m}>{m}</option>)}</select>
               </Field>
             </div>
@@ -110,7 +122,7 @@ export function VideoFlow() {
               <Field label="CTA trên video"><input className={inputCls} value={form.cta} onChange={(e) => set({ cta: e.target.value })} placeholder="Bấm giỏ hàng ngay" /></Field>
             </div>
             <div>
-              <p className="mb-2 text-sm font-medium">Ảnh tham chiếu (tối đa 5)</p>
+              <p className="mb-2 text-sm font-medium">Ảnh tham chiếu (tối đa 5){form.tool === "review-do-an-vat" && <span className="ml-1 text-xs font-normal text-muted">— nên có ảnh bao bì + ảnh người review; thiếu thì AI tự tạo ảnh trên Flow</span>}</p>
               <div className="flex flex-wrap gap-2">
                 {form.images.map((im: any, i: number) => (
                   <div key={im.path} className="flex items-center gap-2 rounded-xl border border-line px-2 py-1.5 text-xs">
@@ -155,7 +167,7 @@ export function VideoFlow() {
         <div className="space-y-2 text-sm">
           <p><b>{tool?.label}</b> · {form.title}</p>
           <ul className="list-disc space-y-1 pl-5 text-muted">
-            <li>Hệ thống <b>tự chạy ngầm, không cần Sếp bấm gì</b>: AI tự mở profile "{settings.data?.chromeProfileName ?? settings.data?.browserLabel ?? "đã chọn"}", viết kịch bản, tạo từng cảnh trên Flow, tải về, ghép + chèn phụ đề (khoảng {tool?.minutes ?? 40} phút). Chỉ có thông báo khi video đã xong. Đừng thao tác trên cửa sổ Chrome đó trong lúc chạy.</li>
+            <li>Hệ thống <b>tự chạy ngầm, không cần Sếp bấm gì</b>: AI mở Tool <b>{tool?.label}</b> trong Chrome Flow (tài khoản {settings.data?.chromeProfileEmail ?? settings.data?.chromeProfileName ?? "đã chọn"}), chạy đủ các bước Cấu hình → Khung chủ → Kịch bản → Storyboard → Sản xuất, tải clip, ghép + chèn phụ đề (khoảng {tool?.minutes ?? 40} phút). Chỉ có thông báo khi video đã xong.</li>
             <li>Mỗi lần tạo cảnh tốn tín dụng Google Flow (tối đa 3 lần làm lại mỗi cảnh).</li>
             <li>Video thành phẩm vào hộp Duyệt; chỉ sau khi duyệt mới đăng <b>bản nháp</b> lên {form.channels.join(", ")}.</li>
           </ul>
@@ -208,17 +220,15 @@ function BrowserPicker({ open, current, onClose, onSaved }: { open: boolean; cur
   const act = async (k: string, fn: () => Promise<any>) => { setBusy(k); try { return await fn(); } catch (e: any) { toast(e.message, "err"); } finally { setBusy(null); } };
   const choose = (p: any) => act(`c:${key(p)}`, async () => {
     await api.put("creative/settings", { chromeChannel: p.channel, chromeProfileDir: p.dir, chromeProfileName: p.name, chromeProfileEmail: p.email });
-    toast(p.claudeExtension ? `Đã chọn profile "${p.name}"` : `Đã chọn "${p.name}" — nhớ cài Claude in Chrome cho profile này`);
+    toast(`Đã chọn profile "${p.name}" — đang nối đăng nhập vào Chrome Flow…`, "info");
     onSaved();
-  });
-  const openP = (p: any, target: "flow" | "extension") => act(`${target}:${key(p)}`, async () => {
-    await api.post("creative/chrome-profiles/open", { channel: p.channel, dir: p.dir, target });
-    toast(target === "flow" ? `Đã mở Flow trong profile "${p.name}"` : `Đã mở trang cài Claude in Chrome trong profile "${p.name}" — bấm "Thêm vào Chrome" rồi đăng nhập Claude`);
-  });
-  const verify = (p: any) => act(`v:${key(p)}`, async () => {
     const r = await api.post("creative/chrome-profiles/verify", { channel: p.channel, dir: p.dir });
-    setChecks((c) => ({ ...c, [key(p)]: { found: r.found, text: r.found ? `Kết nối OK (${r.browserName})` : r.error || "Không thấy Claude in Chrome trong profile này" } }));
-    toast(r.found ? `Profile "${p.name}": Claude in Chrome đã kết nối` : `Profile "${p.name}": chưa kết nối Claude in Chrome`, r.found ? "ok" : "err");
+    setChecks((c) => ({ ...c, [key(p)]: { found: r.found, text: r.found ? `Chrome Flow đã đăng nhập ${r.accountEmail}` : r.error } }));
+    toast(r.found ? `Chrome Flow sẵn sàng (${r.accountEmail})` : r.error, r.found ? "ok" : "err");
+  });
+  const openP = (p: any) => act(`flow:${key(p)}`, async () => {
+    await api.post("creative/chrome-profiles/open", { channel: p.channel, dir: p.dir, target: "flow" });
+    toast(`Đã mở Flow trong profile "${p.name}"`);
   });
   const list = (data?.profiles ?? []).filter((p) => !search || `${p.name} ${p.email ?? ""} ${p.googleName ?? ""} ${p.dir}`.toLowerCase().includes(search.toLowerCase()));
   const isCurrent = (p: any) => current?.chromeChannel === p.channel && current?.chromeProfileDir === p.dir;
@@ -226,7 +236,7 @@ function BrowserPicker({ open, current, onClose, onSaved }: { open: boolean; cur
   return (
     <Modal open={open} onClose={onClose} wide title="Chọn profile Chrome dùng cho Google Flow">
       <div className="space-y-3">
-        <p className="text-sm text-muted">Tất cả profile Chrome trên máy này. Chọn profile <b className="text-ink">đang đăng nhập tài khoản Google có Flow</b>. Agent sẽ tự mở đúng profile đó khi chạy — profile cần cài và đăng nhập extension <b className="text-ink">Claude in Chrome</b>.</p>
+        <p className="text-sm text-muted">Tất cả profile Chrome trên máy này. Chọn profile <b className="text-ink">đang đăng nhập tài khoản Google có Flow</b> — hệ thống chép đăng nhập đó sang Chrome Flow (cửa sổ Chrome riêng mà AI điều khiển), không cần cài extension.</p>
         <input className={inputCls} placeholder="Tìm theo tên profile hoặc email…" value={search} onChange={(e) => setSearch(e.target.value)} />
         {!data ? <p className="flex items-center gap-2 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" />Đang đọc profile Chrome…</p> : list.length === 0 ? <Empty>Không thấy profile nào.</Empty> : (
           <div className="max-h-[56vh] space-y-2 overflow-y-auto pr-1 scroll-thin">
@@ -243,14 +253,12 @@ function BrowserPicker({ open, current, onClose, onSaved }: { open: boolean; cur
                       <p className="flex flex-wrap items-center gap-1.5 font-semibold text-ink">{p.name}{isCurrent(p) && <Badge tone="blue">Đang dùng cho Flow</Badge>}{p.lastUsed && <Badge>Mở gần nhất</Badge>}</p>
                       <p className="truncate text-xs text-muted">{p.email ?? "Chưa đăng nhập Google"} · {p.channelName} · {p.dir}</p>
                     </div>
-                    {p.claudeExtension ? <Badge tone="green">Có Claude in Chrome</Badge> : <Badge tone="amber">Chưa cài Claude in Chrome</Badge>}
+                    {p.email ? <Badge tone="green">Đã đăng nhập Google</Badge> : <Badge tone="amber">Chưa đăng nhập Google</Badge>}
                   </div>
                   {chk && <p className={cx("mt-2 text-xs", chk.found ? "text-emerald-600" : "text-rose-600")}>{chk.text}</p>}
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button size="sm" variant={isCurrent(p) ? "secondary" : "primary"} loading={busy === `c:${k}`} onClick={() => choose(p)}>{isCurrent(p) ? "Đã chọn" : "Chọn profile này"}</Button>
-                    <Button size="sm" loading={busy === `flow:${k}`} onClick={() => openP(p, "flow")}>Mở Flow trong profile</Button>
-                    {!p.claudeExtension && <Button size="sm" variant="soft" loading={busy === `extension:${k}`} onClick={() => openP(p, "extension")}>Cài Claude in Chrome</Button>}
-                    <Button size="sm" variant="ghost" loading={busy === `v:${k}`} onClick={() => verify(p)}>Kiểm tra kết nối</Button>
+                    <Button size="sm" loading={busy === `flow:${k}`} onClick={() => openP(p)}>Mở Flow trong profile</Button>
                   </div>
                 </div>
               );
@@ -258,10 +266,10 @@ function BrowserPicker({ open, current, onClose, onSaved }: { open: boolean; cur
           </div>
         )}
         <div className="flex items-center justify-between text-xs text-muted">
-          <span>{data ? `${data.profiles.length} profile · ${data.profiles.filter((p) => p.claudeExtension).length} profile có Claude in Chrome` : ""}</span>
+          <span>{data ? `${data.profiles.length} profile · ${data.profiles.filter((p) => p.email).length} profile đã đăng nhập Google` : ""}</span>
           <Button size="sm" variant="ghost" onClick={load}>Quét lại</Button>
         </div>
-        <p className="rounded-xl bg-soft p-3 text-xs text-muted">Profile chưa có extension: bấm <b>Cài Claude in Chrome</b> → “Thêm vào Chrome” → đăng nhập tài khoản Claude trong extension → quay lại bấm <b>Kiểm tra kết nối</b>. “Kiểm tra kết nối” chạy ngầm khoảng 1 phút: Claude đọc email tài khoản Google trong profile để xác nhận đúng profile (không cần bấm gì).</p>
+        <p className="rounded-xl bg-soft p-3 text-xs text-muted">Bấm <b>Chọn profile này</b>: vài giây sau Chrome Flow có sẵn đăng nhập Google của profile (không cần bấm gì). Nếu Google không nhận bản sao đăng nhập, Chrome Flow tự mở trang đăng nhập — Sếp đăng nhập 1 lần, các lần sau chạy ngầm hoàn toàn.</p>
       </div>
     </Modal>
   );

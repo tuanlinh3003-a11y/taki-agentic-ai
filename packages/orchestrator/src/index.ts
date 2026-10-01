@@ -1,7 +1,7 @@
 import { audit, emit, insert, q, update, type Row } from "@dotaka/db";
 import { sendTelegram } from "@dotaka/connectors";
 import { handleIncoming, runFollowUps } from "@dotaka/chat-engine";
-import { formatVnd, nowIso } from "@dotaka/shared";
+import { formatVnd, logger, nowIso } from "@dotaka/shared";
 import { runAllRules, executeAction, publishCandidate, startAdsReport, syncAdMetrics, latestDaily, sumMetrics, today } from "./ads.ts";
 import { expireApprovals } from "./approvals.ts";
 import { learnDaily } from "./learning.ts";
@@ -25,6 +25,7 @@ export * from "./connections.ts";
 export * from "./automations.ts";
 export * from "./zalo-followup.ts";
 export * from "./chrome-profiles.ts";
+export * from "./flow-browser.ts";
 
 export async function dailyReport(bizId: string) {
   const ads = q.all<Row>("SELECT id FROM ad WHERE biz_id = ?", bizId);
@@ -70,8 +71,8 @@ export function startOrchestrator() {
     update("task", t.id, { status: "ready", step: "Khôi phục sau khởi động lại" });
     audit(t.biz_id, "orchestrator", "task.recovered", { type: "task", id: t.id }, { from: t.status });
   }
-  // Flow jobs run in a Terminal window that survives a server restart: re-attach and wait for result.json.
-  for (const j of q.all<Row>("SELECT id FROM creative_job WHERE status = 'running'")) void reattachVideoJob(j.id).catch(() => {});
+  // Flow agents run detached and survive a server restart: re-attach (live log + result.json).
+  for (const j of q.all<Row>("SELECT id FROM creative_job WHERE status = 'running'")) void reattachVideoJob(j.id).catch((e) => logger.warn("creative.reattach_failed", { jobId: j.id, error: String(e) }));
   registerTelegramFromDb();
   registerZaloProxy();
   for (const b of q.all<Row>("SELECT id FROM biz")) {

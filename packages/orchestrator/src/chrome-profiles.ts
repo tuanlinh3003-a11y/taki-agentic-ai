@@ -6,8 +6,8 @@ import { AppError } from "@dotaka/shared";
 
 /**
  * Local Chrome profiles (every profile the CEO created), read from each browser's "Local State".
- * Claude in Chrome runs per profile, so the Flow agent must drive the profile that is logged into Flow.
- * A profile is identified at run time by opening a marker tab in it (see markerUrl) — no guessing by "Browser 1/2".
+ * The CEO picks the profile logged into Flow; its login is copied into "Chrome Flow" (flow-browser.ts),
+ * the dedicated Chrome the Flow agent drives.
  */
 export const CLAUDE_EXTENSION_ID = "fcoeoabgfenejglbffodgkkbkcdhcgfn";
 export const CLAUDE_EXTENSION_URL = `https://chromewebstore.google.com/detail/${CLAUDE_EXTENSION_ID}`;
@@ -31,6 +31,14 @@ function channels(): Channel[] {
     { key: "chrome-beta", name: "Chrome Beta", dir: join(cfg, "google-chrome-beta"), macApp: "", linuxBin: "google-chrome-beta" },
     { key: "chromium", name: "Chromium", dir: join(cfg, "chromium"), macApp: "", linuxBin: "chromium" },
   ];
+}
+
+/** Folder ("user data dir") + executable of an installed Chrome channel. */
+export function chromeChannel(key: string) {
+  const ch = channels().find((c) => c.key === key);
+  if (!ch) return null;
+  const exe = platform() === "darwin" ? `/Applications/${ch.macApp}.app/Contents/MacOS/${ch.macApp}` : ch.linuxBin;
+  return { ...ch, exe };
 }
 
 function hasClaudeExtension(profileDir: string) {
@@ -71,8 +79,8 @@ export function listChromeProfiles(): ChromeProfile[] {
       });
     }
   }
-  // Profiles with Claude in Chrome first, then most recently used.
-  return out.sort((a, b) => Number(b.claudeExtension) - Number(a.claudeExtension) || (b.activeAt ?? 0) - (a.activeAt ?? 0));
+  // Profiles signed into Google first, then most recently used.
+  return out.sort((a, b) => Number(!!b.email) - Number(!!a.email) || (b.activeAt ?? 0) - (a.activeAt ?? 0));
 }
 
 export function profileAvatarPath(channel: string, dir: string) {
@@ -95,7 +103,3 @@ export function openInProfile(channel: string, dir: string, url: string) {
   p.on("error", () => { /* reported to the caller via the UI hint */ });
   p.unref();
 }
-
-/** A local page whose <title> lets the agent find the exact browser/profile among connected ones. */
-export const markerTitle = (token: string) => `TAKI-FLOW-${token}`;
-export const markerUrl = (token: string) => `http://127.0.0.1:${process.env.API_PORT ?? 8787}/v1/creative/marker/${encodeURIComponent(token)}`;

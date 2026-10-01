@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { FLOW_URL, listChromeProfiles, openInProfile } from "./chrome-profiles.ts";
+import { listChromeProfiles } from "./chrome-profiles.ts";
+import { ensureFlowBrowser, flowAccounts, flowMcpConfig, flowSource, openFlowLogin, syncFlowProfile } from "./flow-browser.ts";
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
 import { activeDna, audit, bizSettings, byId, emit, insert, q, update, type Row } from "@dotaka/db";
 import { connector, platformForChannel } from "@dotaka/connectors";
-import { effectiveProvider, modelFor, runClaudeAgent, runClaudeInTerminal } from "@dotaka/llm-gateway";
+import { effectiveProvider, followClaudeRun, modelFor, runClaudeInTerminal } from "@dotaka/llm-gateway";
 import { agentPlaybook } from "@dotaka/skills";
 import { AppError, logger, nowIso } from "@dotaka/shared";
 import { PermanentError, enqueue } from "./queue.ts";
@@ -14,17 +14,32 @@ import { reviewOutput } from "./review.ts";
 
 /**
  * Creative Agent: produces finished videos on Google Flow by running the Marketing department's Flow skills
- * through Claude Code in the CEO's own Chrome (Claude in Chrome), then post-produces locally (ffmpeg +
+ * — inside the skill's own Flow Tool — through headless Claude Code + Playwright MCP attached to "Chrome Flow"
+ * (flow-browser.ts; reaches into the Tool's sandboxed iframe), then post-produces locally (ffmpeg +
  * taki-video-finish), registers the asset, reviews it, and after approval uploads it to channels as a DRAFT.
  * Each run consumes Flow credits and drives the user's browser, so jobs are started explicitly and run
  * one at a time (lock "flow-chrome").
  */
 export const FLOW_TOOLS = {
-  "review-do-an-vat": { skill: "flow-review-do-an-vat", label: "Review Đồ Ăn Vặt AI V6", minutes: 35, hint: "Tên sản phẩm, ảnh sản phẩm (tuỳ chọn), giọng, ưu đãi/CTA" },
-  "cooking-director": { skill: "flow-cooking-director-video", label: "Flow Cooking Director v2", minutes: 45, hint: "3 ảnh (chân dung người dẫn, món ăn, bao bì/góc bếp) + tên, giá, điểm nổi bật" },
-  "cinematic": { skill: "flow-cinematic-short-film", label: "Cinematic Short Film Studio", minutes: 50, hint: "Ảnh nhân vật/bối cảnh/đạo cụ + chủ đề, thông điệp, thời lượng 30/60/90s" },
-} as const;
-export type FlowToolKey = keyof typeof FLOW_TOOLS;
+  "review-do-an-vat": {
+    skill: "flow-review-do-an-vat", label: "Review Đồ Ăn Vặt AI V6", minutes: 40,
+    hint: "Ảnh bao bì sản phẩm + ảnh nhân vật review (Tool bắt buộc 2 ảnh này; thiếu thì AI tự tạo ảnh trên Flow), tên sản phẩm, giọng, ưu đãi/CTA",
+    toolUrl: "https://flow.google.com/project/af2cb6c3-2519-40b3-ad29-58156bf9e264/tool/906532d8-6672-4f21-8bc4-55e5bd9cac91",
+    // What the Tool (V6) actually shows — read live from the Tool on 2026-10-01; differs from the skill text on images.
+    uiMap: [
+      "Thanh tiến trình 5 bước: 1 CẤU HÌNH · 2 KHUNG CHỦ · 3 KỊCH BẢN · 4 STORYBOARD · 5 SẢN XUẤT (bấm số để quay lại bước).",
+      "Bước 1 CẤU HÌNH: 4 ô ảnh A NHÂN VẬT (BẮT BUỘC) · B BAO BÌ (BẮT BUỘC) · I BÊN TRONG (ruột/miếng ăn, tuỳ chọn) · E BỐI CẢNH (tuỳ chọn); ô \"Tên sản phẩm *\" + nút XÁC NHẬN HỒ SƠ AI; MIỀN BẮC/MIỀN NAM; NỮ/NAM; thanh \"TỐC ĐỘ NÓI\" (slider); ô XƯNG HÔ; dòng \"Cần: …\" liệt kê thứ còn thiếu; TIẾP TỤC chỉ chạy khi đủ.",
+      "Bấm một ô ảnh → Flow mở hộp \"Select media\" (NGOÀI iframe, trong trang chính) gồm Images / Uploads / \"Upload media\" / Recent. Tải ảnh mới: bấm \"Upload media\" rồi browser_file_upload đúng đường dẫn; hoặc chọn ảnh đã có trong Images.",
+      "Gán ảnh đầu vào theo vai trò: \"Nhân vật\" → A; \"Bao bì\"/\"Sản phẩm\" → B; \"Bên trong\" → I; \"Bối cảnh\" → E.",
+      "Thiếu ảnh A hoặc B: KHÔNG dừng. Về trang project (nút ← góc trên trái), tạo ẢNH bằng trình tạo gốc (chip cài đặt cạnh ô \"What do you want to create?\" → Image, 9:16, x1): A = chân dung người review Việt Nam phù hợp giới tính/miền, cầm đồ ăn, ánh sáng tự nhiên, nhìn camera; B = ảnh bao bì sản phẩm theo mô tả trong brief, nền sạch. Rồi quay lại Tool, chọn ảnh vừa tạo trong Images. Ghi vào notes là ảnh do AI tạo.",
+      "\"NHẬT KÝ HỆ THỐNG (n)\" ở chân Tool: mở ra để đọc lỗi khi một bước không chạy; thu gọn lại nếu nó che nút TIẾP TỤC.",
+      "Giọng: nút đang chọn có nền cam. Sau khi bấm MIỀN/GIỚI TÍNH, sang bước 3 kiểm tra dòng \"GIỌNG: …\" trên BẢNG KỊCH BẢN cho đúng.",
+    ],
+  },
+  "cooking-director": { skill: "flow-cooking-director-video", label: "Flow Cooking Director v2", minutes: 45, hint: "3 ảnh (chân dung người dẫn, món ăn, bao bì/góc bếp) + tên, giá, điểm nổi bật", toolUrl: null, uiMap: [] },
+  "cinematic": { skill: "flow-cinematic-short-film", label: "Cinematic Short Film Studio", minutes: 50, hint: "Ảnh nhân vật/bối cảnh/đạo cụ + chủ đề, thông điệp, thời lượng 30/60/90s", toolUrl: null, uiMap: [] },
+} as { [k: string]: { skill: string; label: string; minutes: number; hint: string; toolUrl: string | null; uiMap: string[] } };
+export type FlowToolKey = "review-do-an-vat" | "cooking-director" | "cinematic";
 
 export const CreativeInput = z.object({
   tool: z.enum(Object.keys(FLOW_TOOLS) as [FlowToolKey, ...FlowToolKey[]]),
@@ -39,7 +54,7 @@ export const CreativeInput = z.object({
   channels: z.array(z.string()).min(1).default(["tiktok"]),
   brand: z.enum(["taki", "other"]).default("other"), // "other" = affiliate/client channel: TAKI DNA is NOT applied
   sourceContentId: z.string().optional(),
-  /** Veo model in Flow's native generator (custom Tools run in a sandboxed iframe the browser agent cannot click). */
+  /** Veo model, used only if the Tool offers a model choice (the Tool otherwise decides). */
   veoModel: z.enum(["Veo 3.1 - Lite", "Veo 3.1 - Fast", "Veo 3.1 - Quality"]).default("Veo 3.1 - Fast"),
 });
 export type CreativeInput = z.infer<typeof CreativeInput>;
@@ -66,26 +81,43 @@ function notifyDesktop(title: string, message: string) {
   try { execFileSync("osascript", ["-e", `display notification "${esc(message)}" with title "TAKI Agentic AI" subtitle "${esc(title)}" sound name "Glass"`], { timeout: 5000 }); } catch { /* notifications are best-effort */ }
 }
 export const UPLOAD_DIR = join(DATA_DIR, "uploads");
-const DOWNLOADS = join(homedir(), "Downloads");
 
 export function flowSettings(bizId: string) {
   return {
     browserDeviceId: null as string | null, browserLabel: null as string | null, timeoutMin: 75,
     // Chrome profile chosen by the CEO (the one logged into Flow). Preferred over a bare deviceId.
     chromeChannel: null as string | null, chromeProfileDir: null as string | null, chromeProfileName: null as string | null, chromeProfileEmail: null as string | null,
+    /** Per-tool Flow Tool link override (defaults to the link in FLOW_TOOLS / the skill). */
+    toolUrls: {} as Record<string, string>,
     ...((bizSettings(bizId) as any).flow ?? {}),
   };
 }
 
-/** Prompt lines telling the Flow agent how to land on the right Chrome profile (inside the supervised session). */
-function browserInstructions(fs: ReturnType<typeof flowSettings>) {
-  const who = fs.chromeProfileEmail ? `email ${fs.chromeProfileEmail}` : `profile "${fs.chromeProfileName}"`;
+export const toolUrlFor = (fs: ReturnType<typeof flowSettings>, key: string) => fs.toolUrls?.[key] || FLOW_TOOLS[key]?.toolUrl || null;
+
+/** How this machine runs the skill: Playwright tools on Chrome Flow, local folders, no human in the loop. */
+function environmentInstructions(o: { toolLabel: string; toolUrl: string | null; uiMap: string[]; email: string | null; workdir: string; rawDir: string }) {
   return [
-    `- Trình duyệt: Claude in Chrome, ĐÚNG profile Chrome "${fs.chromeProfileName ?? fs.browserLabel ?? "đã chọn"}"${fs.chromeProfileEmail ? ` (Google: ${fs.chromeProfileEmail})` : ""}. Hệ thống vừa mở profile này với Flow.`,
-    `  Việc ĐẦU TIÊN: navigate (không truyền tabId) tới https://myaccount.google.com/ → get_page_text → kiểm tra đang đăng nhập ${who}.`,
-    "  Sai tài khoản → list_connected_browsers, select_browser lần lượt từng trình duyệt và kiểm tra lại như trên; bỏ qua trình duyệt nào treo/hết hạn.",
-    "  Không tìm thấy đúng profile → dừng, ghi result với status \"blocked\". KHÔNG dùng tài khoản khác.",
-    `  Đúng rồi → mở ${FLOW_URL} trong tab của nhóm Claude và làm tiếp.`,
+    "# MÔI TRƯỜNG CHẠY (máy Mac của TAKI, chạy tự động, KHÔNG có người theo dõi) — áp cho skill ở trên",
+    `- Trình duyệt = các tool mcp__flow__browser_* (Playwright) đã gắn sẵn vào "Chrome Flow"${o.email ? `, đăng nhập Google ${o.email}` : ""}. Đây là thay thế cho Claude in Chrome trong skill: bỏ qua bước đọc skill chrome-browser / ToolSearch / tabs_context_mcp.`,
+    "- Playwright nhìn thấy và thao tác được BÊN TRONG iframe của Tool. Cách làm chuẩn: browser_snapshot → lấy ref của nút/ô theo chữ → browser_click / browser_type / browser_select_option / browser_file_upload theo ref → snapshot lại để xác nhận. Chờ bằng browser_wait_for (text hoặc time ≤ 60s), không chờ mù.",
+    "- Snapshot dài: chỉ đọc phần cần. Dùng browser_take_screenshot khi cần NHÌN ảnh/khung hình (chấm khung chủ, storyboard).",
+    "- Dùng 1 tab duy nhất (browser_tabs: đóng tab thừa). Không tắt trình duyệt.",
+    o.toolUrl
+      ? `- Mở THẲNG Tool "${o.toolLabel}": browser_navigate ${o.toolUrl} — tiêu đề trên cùng phải là "${o.toolLabel}". Công cụ đang ở bước cũ → bấm bước 1 trên thanh tiến trình để làm sản phẩm mới.`
+      : `- Mở Tool "${o.toolLabel}" theo đúng skill (sidebar Tools / "Công cụ của tôi" / "Công cụ được chia sẻ với tôi").`,
+    `- BẮT BUỘC chạy hết các bước BÊN TRONG Tool "${o.toolLabel}" (không tự viết prompt Veo ngoài Tool, không dùng công cụ khác).`,
+    ...(o.uiMap.length ? ["- Bản đồ giao diện Tool (đọc trực tiếp từ Tool, ưu tiên hơn mô tả trong skill nếu khác):", ...o.uiMap.map((l) => `  • ${l}`)] : []),
+    "- Chưa đăng nhập / hết tín dụng / không mở được Tool → dừng ngay, ghi result.json status \"blocked\" kèm lý do. KHÔNG đăng nhập hộ, KHÔNG nhập mật khẩu, KHÔNG đổi cài đặt tài khoản, KHÔNG xóa gì, KHÔNG mua thêm tín dụng.",
+    "- KHÔNG có người để hỏi: bỏ qua AskUserQuestion / SendUserMessage / SendUserFile và mọi bước \"chờ người dùng duyệt\"; thiếu thông tin thì tự giả định hợp lý theo mặc định trong skill và ghi vào notes.",
+    "- Đây KHÔNG phải cloud: bỏ qua device_request_folder_access / device_stage_files / device_commit_files / /mnt/user-data.",
+    `- LẤY CLIP: nút TẢI VỀ / TẢI TẤT CẢ CLIP trong Tool bị Chrome chặn (iframe sandbox không cho tải) — ĐỪNG bấm. Khi bước SẢN XUẤT đã có video ở MỌI cảnh, chạy: taki-flow-save --out ${join(o.workdir, "clips")} → lưu thẳng từ trang thành scene_01.mp4, scene_02.mp4… đúng thứ tự cảnh, in JSON số clip. Số clip phải bằng số cảnh; thiếu thì chờ cảnh đó xong / LÀM LẠI CLIP rồi chạy lại.`,
+    "- Kiểm tra clip bằng ffprobe; soát lời thoại bằng: taki-video-stt <file1> <file2>… (JSON ngôn ngữ + văn bản).",
+    `- HẬU KỲ (thay mục 7.2–7.3 của skill): ffmpeg máy này KHÔNG có libass/drawtext nên KHÔNG dùng filter ass/subtitles/drawtext. Ghi lời thoại cuối vào ${join(o.workdir, "script.json")} dạng [{"canh":1,"loi_thoai":"..."}] rồi chạy:`,
+    `  taki-video-finish --clips <scene_01.mp4 …> --script ${join(o.workdir, "script.json")} --title "<tiêu đề hook>" --cta "<CTA>" --out ${join(o.workdir, "final.mp4")}`,
+    "  (ghép đúng thứ tự + phụ đề + hook + CTA, in JSON thời lượng/độ phân giải/âm thanh). Rồi trích 2–3 khung hình bằng ffmpeg -ss <t> -frames:v 1 và Read để xem chữ không che mặt/sản phẩm (mục 7.4).",
+    "- Cảnh lỗi: làm lại trong Tool tối đa 2 lần/cảnh (tốn tín dụng). CHỈ làm lại khi đã xác minh lỗi thật bằng taki-video-stt / xem khung hình trên đúng file clips/scene_NN.mp4 vừa lưu bằng taki-flow-save (không so với file nào khác). Không sửa kịch bản/vai trò/thời lượng chỉ để \"phá cache\".",
+    "- Không tự giải mã base64 / tự ghi file video từ trang: chỉ dùng taki-flow-save. Sau khi làm lại 1 cảnh thì chạy lại taki-flow-save (ghi đè cả bộ theo thứ tự).",
   ];
 }
 
@@ -107,6 +139,23 @@ export function startVideoJob(bizId: string, raw: unknown, actor: string) {
 }
 
 // ---------------- Run (queue worker) ----------------
+/** Persist the live agent log at most every 2s, with a trailing write so a burst of steps is never left unsaved. */
+function logFlusher(bizId: string, jobId: string, log: Row[]) {
+  let last = 0;
+  let timer: NodeJS.Timeout | null = null;
+  const write = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    last = Date.now();
+    if (byId<Row>("creative_job", jobId)?.status !== "running") return;
+    update("creative_job", jobId, { log: log.slice(-150), step: log.at(-1)?.text ?? null });
+    emit(bizId, "creative.updated", { jobId, status: "running" });
+  };
+  return (force = false) => {
+    if (force || Date.now() - last >= 2000) write();
+    else timer ??= setTimeout(write, 2000 - (Date.now() - last));
+  };
+}
+
 const running = new Map<string, AbortController>();
 export function cancelVideoJob(bizId: string, jobId: string, actor: string) {
   const job = byId<Row>("creative_job", jobId);
@@ -131,25 +180,39 @@ export async function runVideoJob(jobId: string) {
     emit(bizId, "alert.raised", { level: "warning", text: `Video "${job.title}": ${error}` });
     notifyDesktop(`Video "${job.title}" chưa tạo được`, error);
   };
-  if (effectiveProvider(bizId).provider !== "claude_cli") return fail("blocked", "Cần chế độ Tài khoản Claude (Claude Code CLI) để điều khiển Chrome");
-  if (!fs.chromeProfileDir && !fs.browserDeviceId) return fail("blocked", "Chưa chọn profile Chrome dùng cho Flow (Sản xuất video Flow → Chọn profile Chrome)");
-  // Bring the chosen profile up with Flow open (the agent then confirms the account in-session).
-  if (fs.chromeProfileDir && fs.chromeChannel) {
-    try { openInProfile(fs.chromeChannel, fs.chromeProfileDir, FLOW_URL); } catch (e) { return fail("blocked", `Không mở được profile Chrome "${fs.chromeProfileName}": ${e instanceof Error ? e.message : e}`); }
+  if (effectiveProvider(bizId).provider !== "claude_cli") return fail("blocked", "Cần chế độ Tài khoản Claude (Claude Code CLI) để chạy agent Flow");
+  if (!fs.chromeProfileDir) return fail("blocked", "Chưa chọn profile Chrome có tài khoản Flow (Sản xuất video Flow → Chọn profile Chrome)");
+  // Chrome Flow: dedicated Chrome parked at the screen edge, holding the chosen profile's Google login; checked before spending anything.
+  update("creative_job", jobId, { step: "Mở Chrome Flow (chạy ngầm)" });
+  let email: string | null = null;
+  try {
+    const src = flowSource();
+    if (src && (src.channel !== fs.chromeChannel || src.dir !== fs.chromeProfileDir)) await syncFlowProfile(fs.chromeChannel!, fs.chromeProfileDir);
+    await ensureFlowBrowser({ channel: fs.chromeChannel, dir: fs.chromeProfileDir });
+    let accounts = await flowAccounts();
+    // Login lost (cookies rotated) → re-copy once from the everyday profile, which stays logged in.
+    if (!accounts.length || (fs.chromeProfileEmail && !accounts.includes(fs.chromeProfileEmail))) {
+      await syncFlowProfile(fs.chromeChannel!, fs.chromeProfileDir);
+      await ensureFlowBrowser({});
+      accounts = await flowAccounts();
+    }
+    if (!accounts.length) {
+      await openFlowLogin({}).catch(() => {});
+      return fail("blocked", "Chrome Flow chưa đăng nhập Google. Cửa sổ Chrome Flow đã mở — Sếp đăng nhập tài khoản có Flow 1 lần rồi chạy lại.");
+    }
+    email = fs.chromeProfileEmail && accounts.includes(fs.chromeProfileEmail) ? fs.chromeProfileEmail : accounts[0]!;
+  } catch (e) {
+    return fail("blocked", `Không mở được Chrome Flow: ${e instanceof Error ? e.message : e}`);
   }
   const skill = q.get<Row>("SELECT body, version FROM skill WHERE biz_id = ? AND key = ? AND status = 'active'", bizId, tool.skill);
   if (!skill) return fail("blocked", `Chưa nạp skill ${tool.skill} (Skill & Nhân viên MKT → Đồng bộ lại)`);
 
   const workdir = job.workdir as string;
+  const rawDir = join(workdir, "raw");
+  mkdirSync(rawDir, { recursive: true });
   const log: Row[] = [];
-  let lastFlush = 0;
-  const flush = (force = false) => {
-    if (!force && Date.now() - lastFlush < 2000) return;
-    lastFlush = Date.now();
-    update("creative_job", jobId, { log: log.slice(-150), step: log.at(-1)?.text ?? null });
-    emit(bizId, "creative.updated", { jobId, status: "running" });
-  };
-  update("creative_job", jobId, { status: "running", started_at: nowIso(), step: "Khởi động Claude + Chrome" });
+  const flush = logFlusher(bizId, jobId, log);
+  update("creative_job", jobId, { status: "running", started_at: nowIso(), step: `Khởi động agent Flow (${email})` });
   emit(bizId, "creative.updated", { jobId, status: "running" });
 
   const dna = input.brand === "taki" ? agentPlaybook(bizId, "content").text.split("<persona")[0] : "";
@@ -157,27 +220,7 @@ export async function runVideoJob(jobId: string) {
     `# SKILL ĐANG CHẠY: ${tool.skill} (v${skill.version})`,
     skill.body,
     "",
-    "# CHẠY TỰ ĐỘNG TRONG HỆ THỐNG TAKI AGENTIC AI (máy Mac cục bộ, KHÔNG có người theo dõi; quyền được duyệt tự động bởi bộ phân loại an toàn)",
-    ...browserInstructions(fs),
-    "",
-    "# CHẾ ĐỘ FLOW GỐC (BẮT BUỘC — ghi đè mọi chỉ dẫn mở Tool ở trên)",
-    `- KHÔNG mở Tool "${tool.label}" trên Flow: Tool chạy trong iframe sandbox (scf.usercontent.goog) mà Claude in Chrome không click/gõ được. Bạn TỰ làm phần việc của Tool theo đúng phương pháp của skill ở trên, rồi tạo clip bằng trình tạo GỐC của Flow.`,
-    "- B1 KỊCH BẢN (tự làm, không cần trình duyệt): theo skill, viết hồ sơ nhân vật/sản phẩm cố định (ngoại hình, trang phục, bối cảnh, ánh sáng — dùng lại NGUYÊN VĂN ở mọi cảnh để đồng nhất), chia cảnh 8 giây (số cảnh = làm tròn lên thời lượng/8), mỗi cảnh: lời thoại tiếng Việt ≤ 20 từ đúng giọng/miền, hành động, góc máy.",
-    "- B2 PROMPT TỪNG CẢNH: mô tả bằng tiếng Anh cho Veo (subject, action, camera, lighting, \"vertical 9:16\"), lời thoại đặt trong ngoặc kép và ghi rõ: speaks Vietnamese with a <Northern/Southern> Vietnamese accent; không chữ/watermark trên hình.",
-    `- B3 TRÊN FLOW: Home → New project (đặt tên = tên video). Bấm chip cài đặt cạnh ô "What do you want to create?" → chọn Video, khổ 9:16, model "${input.veoModel}", x1${input.images.length ? ", chế độ Ingredients" : ""}. Kiểm tra dòng "Generating will use N credits" và ghi N vào notes.`,
-    input.images.length ? "- Ảnh tham chiếu: nút + cạnh ô prompt → tải ảnh lên bằng file_upload/upload_image (đường dẫn ở phần yêu cầu) → dùng làm Ingredients cho mọi cảnh có nhân vật/sản phẩm đó." : "",
-    "- Từng cảnh theo thứ tự: dán prompt vào ô \"What do you want to create?\" → bấm mũi tên gửi → chờ (screenshot mỗi ~20 giây, tối đa 6 phút/cảnh) → xem clip: sai nhân vật/sản phẩm/lời → tạo lại (tối đa 2 lần/cảnh).",
-    "- Tải từng clip đạt: mở clip → nút tải xuống (Download) → chọn bản gốc/720p. File về thư mục Downloads.",
-    "- Nút/ô nằm ngoài iframe nên định vị bằng find/read_page; nếu click theo ref không phản hồi thì click theo toạ độ từ screenshot.",
-    "- Chỉ thao tác trên Flow (flow.google.com / labs.google). KHÔNG đăng nhập hộ, KHÔNG nhập mật khẩu, KHÔNG đổi cài đặt tài khoản, KHÔNG xóa gì. Chưa đăng nhập / hết tín dụng / không thấy công cụ → status \"blocked\" kèm lý do trong notes.",
-    "- KHÔNG có người để hỏi: bỏ qua mọi bước AskUserQuestion/SendUserMessage/SendUserFile; thiếu thông tin thì tự giả định hợp lý và ghi vào notes.",
-    "- Đây KHÔNG phải cloud: bỏ qua device_request_folder_access, device_stage_files, device_commit_files, /mnt/user-data.",
-    `- Clip tải từ Chrome nằm ở ${DOWNLOADS}. Chỉ lấy clip MỚI của lần chạy này (theo thời gian sửa đổi sau lúc bắt đầu), chép vào ${join(workdir, "clips")} và đặt tên scene_01.mp4, scene_02.mp4… đúng thứ tự cảnh. Nếu là .zip thì unzip vào đó.`,
-    "- Kiểm tra clip bằng ffprobe; soát lời thoại bằng lệnh: taki-video-stt <file1> <file2>… (trả JSON ngôn ngữ + văn bản).",
-    `- HẬU KỲ: ffmpeg máy này KHÔNG có libass/drawtext nên KHÔNG dùng filter ass/subtitles/drawtext. Ghi lời thoại cuối cùng vào ${join(workdir, "script.json")} dạng [{"canh":1,"loi_thoai":"..."}] rồi chạy:`,
-    `  taki-video-finish --clips <scene_01.mp4 …> --script ${join(workdir, "script.json")} --title "<tiêu đề hook>" --cta "<CTA>" --out ${join(workdir, "final.mp4")}`,
-    "  Lệnh in JSON (thời lượng, độ phân giải, có âm thanh). Trích 2-3 khung hình bằng ffmpeg -ss <t> -frames:v 1 rồi Read để xem chữ không che mặt/sản phẩm.",
-    "- Tối đa 3 lần tạo lại mỗi cảnh (tốn tín dụng Flow).",
+    ...environmentInstructions({ toolLabel: tool.label, toolUrl: toolUrlFor(fs, input.tool), uiMap: tool.uiMap, email, workdir, rawDir }),
     `- KẾT THÚC: dùng Write ghi kết quả JSON vào ${join(workdir, "result.json")} đúng schema sau rồi in "XONG — có thể đóng cửa sổ". Schema: ${JSON.stringify(Object.fromEntries(Object.entries(z.toJSONSchema(FlowResult, { target: "draft-7" }) as Row).filter(([k]) => k !== "$schema")))}`,
     `- Bị chặn/lỗi giữa chừng cũng PHẢI ghi result.json với status "blocked"/"failed" và lý do trong notes. finalPath = ${join(workdir, "final.mp4")} khi thành công. caption = caption đăng kênh (tiếng Việt, ≤ 300 ký tự, 3-5 hashtag). script = lời thoại từng cảnh.`,
     ...(dna ? ["", "# THƯƠNG HIỆU: TAKI (áp dụng DNA dưới đây cho lời thoại, caption, claim)", dna] : ["", "# THƯƠNG HIỆU: kênh khác/khách hàng. KHÔNG dùng giọng hay tên TAKI; theo thông tin trong brief."]),
@@ -191,9 +234,10 @@ export async function runVideoJob(jobId: string) {
     input.voice ? `Giọng: ${input.voice}` : "",
     input.hookTitle ? `Tiêu đề hook trên video: ${input.hookTitle}` : "",
     input.cta ? `CTA trên video: ${input.cta}` : "",
-    input.images.length ? `Ảnh đầu vào (đường dẫn trên máy, upload bằng file_upload/upload_image):\n${input.images.map((i) => `- ${i.role}: ${i.path}`).join("\n")}` : "Không có ảnh đầu vào.",
+    input.images.length ? `Ảnh đầu vào (đường dẫn trên máy — tải lên Tool bằng browser_file_upload):\n${input.images.map((i) => `- ${i.role}: ${i.path}`).join("\n")}` : "Không có ảnh đầu vào (ảnh bắt buộc của Tool thì tự tạo trên Flow như hướng dẫn).",
+    `Nếu Tool có chọn model Veo: ${input.veoModel}.`,
     `Kênh sẽ đăng: ${input.channels.join(", ")} (dọc 9:16).`,
-    "Hãy chạy toàn bộ skill đến khi có final.mp4 đã ghép + chèn chữ, rồi trả JSON.",
+    `Hãy chạy toàn bộ skill trong Tool "${tool.label}" đến khi có final.mp4 đã ghép + chèn chữ, rồi ghi result.json.`,
   ].filter(Boolean).join("\n\n");
 
   const ctrl = new AbortController();
@@ -206,12 +250,13 @@ export async function runVideoJob(jobId: string) {
       title: `Video Flow: ${job.title}`, prompt, system, model, cwd: RUN_DIR, signal: ctrl.signal,
       resultFile: join(workdir, "result.json"),
       timeoutMs: (fs.timeoutMin ?? tool.minutes + 30) * 60_000,
+      mcpConfig: flowMcpConfig(rawDir),
       allowedTools: [
-        "mcp__claude-in-chrome", "Read", "Write", "Glob",
+        "mcp__flow", "Read", "Write", "Glob",
         "Bash(ffmpeg:*)", "Bash(ffprobe:*)", "Bash(taki-video-finish:*)", "Bash(taki-video-stt:*)",
-        "Bash(cp:*)", "Bash(mv:*)", "Bash(ls:*)", "Bash(mkdir:*)", "Bash(unzip:*)", "Bash(stat:*)",
+        "Bash(taki-flow-save:*)", "Bash(cp:*)", "Bash(mv:*)", "Bash(ls:*)", "Bash(mkdir:*)", "Bash(unzip:*)", "Bash(stat:*)",
       ],
-      addDirs: [workdir, DOWNLOADS, UPLOAD_DIR],
+      addDirs: [workdir, UPLOAD_DIR],
       onStep: (s) => { log.push(s); flush(); },
     });
   } catch (e) {
@@ -231,28 +276,43 @@ export async function runVideoJob(jobId: string) {
   await completeVideoJob(jobId, out.data);
 }
 
-/** After a server restart: the Claude session keeps running in its Terminal window — wait for its result file. */
+/** After an API restart: the detached agent keeps running — keep its live log flowing and wait for its result. */
 export async function reattachVideoJob(jobId: string) {
   const job = byId<Row>("creative_job", jobId);
   if (!job?.workdir) return;
   const fs = flowSettings(job.biz_id);
   const tool = FLOW_TOOLS[(job.input as CreativeInput).tool];
-  const resultFile = join(job.workdir, "result.json");
   const deadline = new Date(job.started_at ?? job.created_at).getTime() + (fs.timeoutMin ?? tool.minutes + 30) * 60_000;
-  update("creative_job", jobId, { step: "Máy chủ vừa khởi động lại — đang chờ kết quả từ cửa sổ Terminal" });
-  while (Date.now() < deadline) {
-    const cur = byId<Row>("creative_job", jobId);
-    if (!cur || cur.status !== "running") return;
-    if (existsSync(resultFile)) {
-      try {
-        const out = FlowResult.safeParse(JSON.parse(readFileSync(resultFile, "utf8")));
-        if (out.success) return completeVideoJob(jobId, out.data);
-      } catch { /* still being written */ }
-    }
-    await new Promise((r) => setTimeout(r, 5000));
+  const log: Row[] = [...(job.log ?? [])];
+  const stored = log.filter((s) => !s.reattach).length - 1; // first entry is the runner's own "đang chạy ngầm" line
+  log.push({ at: nowIso(), kind: "text", text: "Máy chủ vừa khởi động lại — agent vẫn chạy ngầm, theo dõi tiếp", reattach: true });
+  const flush = logFlusher(job.biz_id, jobId, log);
+  flush(true);
+  let res: unknown;
+  try {
+    res = await followClaudeRun({
+      resultFile: join(job.workdir, "result.json"), deadline, skipSteps: Math.max(0, stored),
+      onStep: (s) => { log.push(s); flush(); },
+      isActive: () => byId<Row>("creative_job", jobId)?.status === "running",
+    });
+  } catch (e) {
+    flush(true);
+    if (byId<Row>("creative_job", jobId)?.status !== "running") return;
+    const error = e instanceof Error ? e.message : String(e);
+    update("creative_job", jobId, { status: "failed", error, step: null, ended_at: nowIso() });
+    emit(job.biz_id, "creative.updated", { jobId, status: "failed" });
+    notifyDesktop(`Video "${job.title}" chưa tạo được`, error);
+    return;
   }
-  update("creative_job", jobId, { status: "failed", error: "Hết thời gian chờ kết quả từ Terminal", step: null, ended_at: nowIso() });
-  emit(job.biz_id, "creative.updated", { jobId, status: "failed" });
+  flush(true);
+  if (res == null) return;
+  const out = FlowResult.safeParse(res);
+  if (!out.success) {
+    update("creative_job", jobId, { status: "failed", error: "Agent không trả kết quả đúng định dạng", step: null, ended_at: nowIso() });
+    emit(job.biz_id, "creative.updated", { jobId, status: "failed" });
+    return;
+  }
+  return completeVideoJob(jobId, out.data);
 }
 
 /** Post-render half of a job: verify the file, register the asset, review, open the approval. */
@@ -374,55 +434,19 @@ export async function runDraftUpload(publishJobId: string) {
   emit(pj.biz_id, "post.published", { title: `Nháp trên ${channel.name}: ${ci.title}` });
 }
 
-// ---------------- Which connected browser is this Chrome profile? ----------------
-const Probe = z.object({ found: z.boolean(), deviceId: z.string(), browserName: z.string(), accountEmail: z.string(), error: z.string() });
+// ---------------- Chrome Flow ← chosen profile ----------------
 /**
- * Claude in Chrome lists browsers as "Browser 1/2…" without profile names, and stale entries hang.
- * Open the profile (so its extension is live), then ask each browser ON THIS COMPUTER which Google account
- * it is signed into (myaccount.google.com) and match the profile's email. Result is cached in settings.
+ * Copy the chosen everyday profile's login into Chrome Flow and report which Google accounts it now has.
+ * Runs in seconds, no AI and no clicks. If the copy did not carry the login, Chrome Flow opens on Google sign-in.
  */
-export async function findProfileBrowser(bizId: string, channel: string, dir: string) {
+export async function connectFlowProfile(bizId: string, channel: string, dir: string) {
   const profile = listChromeProfiles().find((p) => p.channel === channel && p.dir === dir);
   if (!profile) throw new AppError("NO_PROFILE", "Không thấy profile Chrome này trên máy");
-  openInProfile(channel, dir, FLOW_URL);
-  await new Promise((r) => setTimeout(r, 5000));
-  const target = profile.email ?? "";
-  const probeDir = join(DATA_DIR, "creative", "_probe");
-  mkdirSync(probeDir, { recursive: true });
-  const resultFile = join(probeDir, `${Date.now().toString(36)}.json`);
-  const structured = await runClaudeInTerminal({
-    title: `Kiểm tra profile Chrome "${profile.name}"`, model: modelFor(bizId, "creative", "medium"), cwd: RUN_DIR, resultFile, timeoutMs: 6 * 60_000,
-    prompt: [
-      `Kiểm tra trình duyệt (Claude in Chrome) của profile Chrome "${profile.name}"${target ? ` — đăng nhập Google bằng ${target}` : ""}.`,
-      "1) navigate (không truyền tabId) tới https://myaccount.google.com/ → get_page_text → đọc email Google đang đăng nhập.",
-      target ? `2) Không trùng ${target} → list_connected_browsers, select_browser từng trình duyệt và kiểm tra lại; bỏ qua trình duyệt treo.` : "2) Ghi lại email thấy được.",
-      `3) Ghi JSON vào ${resultFile} bằng Write: {"found": true|false, "deviceId": "<deviceId nếu biết, không thì chuỗi rỗng>", "browserName": "", "accountEmail": "", "error": ""}. Rồi đóng tab đã mở (tabs_close_mcp) và in "XONG — có thể đóng cửa sổ".`,
-    ].join("\n"),
-    system: "Bạn chỉ kiểm tra kết nối trình duyệt. Không bấm nút, không điền form, không đổi cài đặt nào.",
-    allowedTools: ["mcp__claude-in-chrome", "Write"], addDirs: [probeDir],
-  });
-  const r = { structured };
-  const res = Probe.parse(r.structured);
-  if (res.found && res.deviceId) {
-    const fs = flowSettings(bizId);
-    if (fs.chromeChannel === channel && fs.chromeProfileDir === dir) {
-      const cur = bizSettings(bizId) as any;
-      update("biz", bizId, { settings: { ...cur, flow: { ...(cur.flow ?? {}), browserDeviceId: res.deviceId, browserLabel: `${res.browserName} · ${res.accountEmail || profile.name}` } } });
-    }
-  }
-  return res;
-}
-export const verifyChromeProfile = findProfileBrowser;
-
-// ---------------- Browser discovery (for the settings page) ----------------
-export async function detectBrowsers(bizId: string) {
-  const Out = z.object({ browsers: z.array(z.object({ deviceId: z.string(), name: z.string(), os: z.string() })), error: z.string() });
-  const r = await runClaudeAgent({
-    prompt: "Gọi list_connected_browsers và trả về danh sách trình duyệt (deviceId, tên/nhãn, hệ điều hành). Không làm gì khác. Nếu lỗi thì ghi vào error.",
-    system: "Bạn chỉ liệt kê trình duyệt đã kết nối Claude in Chrome.", model: modelFor(bizId, "creative", "small"), chrome: true,
-    cwd: DATA_DIR, timeoutMs: 120_000, addDirs: [],
-    jsonSchema: Object.fromEntries(Object.entries(z.toJSONSchema(Out, { target: "draft-7" }) as Row).filter(([k]) => k !== "$schema")),
-    allowedTools: ["mcp__claude-in-chrome__list_connected_browsers"],
-  });
-  return Out.parse(r.structured);
+  await syncFlowProfile(channel, dir);
+  await ensureFlowBrowser({});
+  const accounts = await flowAccounts().catch(() => [] as string[]);
+  const found = profile.email ? accounts.includes(profile.email) : accounts.length > 0;
+  if (!found) await openFlowLogin({}).catch(() => {});
+  audit(bizId, "system", "creative.flow_profile_connected", undefined, { dir, found, accounts });
+  return { found, accountEmail: found ? (profile.email ?? accounts[0]) : "", accounts, error: found ? "" : "Chưa có đăng nhập Google trong Chrome Flow — cửa sổ đăng nhập đã mở" };
 }
