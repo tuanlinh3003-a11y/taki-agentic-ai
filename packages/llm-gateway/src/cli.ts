@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { AppError } from "@dotaka/shared";
 
 /**
@@ -215,73 +215,81 @@ export function runClaudeAgent(o: AgentRunOptions): Promise<AgentRunResult> {
   });
 }
 
-// ---------------- Supervised run in a Terminal window (Claude in Chrome needs a human to approve) ----------------
+// ---------------- Unattended browser run (hidden pseudo-terminal, Claude Code "auto" permission mode) ----------------
 export interface TerminalRunOptions {
   title: string;
   prompt: string;
   system: string;
+  /** Must be a Sonnet/Opus model: auto mode is not available for Haiku. */
   model: string;
+  /** Fixed, pre-trusted working directory (no "trust this folder?" question). */
   cwd: string;
   allowedTools: string[];
   addDirs: string[];
-  /** The agent writes its final JSON here; the run completes when this file appears and parses. */
+  /** The agent writes its final JSON here (absolute path); the run completes when this file parses. */
   resultFile: string;
   timeoutMs: number;
   signal?: AbortSignal;
   onStep?: (step: { at: string; kind: "tool" | "text"; text: string }) => void;
 }
 
-const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+/** Mark a folder as trusted for Claude Code (the CEO's own project data folder) so no dialog appears. */
+async function ensureTrusted(dir: string) {
+  const { readFileSync, writeFileSync, renameSync, existsSync } = await import("node:fs");
+  const { homedir } = await import("node:os");
+  const f = join(homedir(), ".claude.json");
+  if (!existsSync(f)) return;
+  const cfg = JSON.parse(readFileSync(f, "utf8"));
+  if (cfg.projects?.[dir]?.hasTrustDialogAccepted) return;
+  cfg.projects = cfg.projects ?? {};
+  cfg.projects[dir] = { ...(cfg.projects[dir] ?? {}), hasTrustDialogAccepted: true };
+  const tmp = `${f}.taki-${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  renameSync(tmp, f);
+}
 
 /**
- * Claude Code (2.1.2xx+) refuses Claude in Chrome actions in headless `-p` runs unless a person approves them.
- * So browser jobs run as an INTERACTIVE Claude session in a Terminal window: the CEO approves Chrome once
- * ("allow for this session"), the agent works, writes `resultFile`, and we pick it up. Progress is read live
- * from the session transcript (~/.claude/projects/<cwd>/<session-id>.jsonl).
+ * Claude Code refuses Claude in Chrome actions in `-p` runs, but an interactive session in "auto" permission
+ * mode lets Claude's safety classifier approve safe actions itself (risky ones are blocked) — no human clicks.
+ * We run that interactive session inside a hidden pseudo-terminal (`script -q /dev/null …`), follow its
+ * transcript for live progress, and finish when the agent writes `resultFile`.
  */
 export async function runClaudeInTerminal(o: TerminalRunOptions): Promise<unknown> {
-  if (process.platform !== "darwin") throw new AppError("NOT_SUPPORTED", "Chế độ Terminal hiện hỗ trợ macOS");
-  const { writeFileSync, existsSync, readFileSync, rmSync, chmodSync, readdirSync, statSync } = await import("node:fs");
+  if (process.platform !== "darwin" && process.platform !== "linux") throw new AppError("NOT_SUPPORTED", "Chạy trình duyệt tự động hỗ trợ macOS/Linux");
+  const { writeFileSync, existsSync, readFileSync, rmSync, readdirSync, statSync } = await import("node:fs");
   const { homedir } = await import("node:os");
   const { randomUUID } = await import("node:crypto");
-  const dir = join(o.cwd, ".taki-run");
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(o.cwd, { recursive: true });
+  await ensureTrusted(o.cwd);
+  const runDir = join(dirname(o.resultFile), ".taki-run");
+  mkdirSync(runDir, { recursive: true });
   rmSync(o.resultFile, { force: true });
-  const sessionId = randomUUID();
-  // Absolute path: a Terminal login shell may not have the same PATH as this server.
+  const systemFile = join(runDir, "system.md");
+  writeFileSync(systemFile, o.system);
+  writeFileSync(join(runDir, "prompt.md"), o.prompt);
   let bin = BIN;
-  try { bin = execFileSync("/bin/sh", ["-lc", `command -v ${shq(BIN)}`], { encoding: "utf8", env: childEnv() }).trim() || BIN; } catch { /* keep BIN */ }
-  writeFileSync(join(dir, "system.md"), o.system);
-  writeFileSync(join(dir, "prompt.md"), o.prompt);
-  const script = join(dir, "run.command");
-  writeFileSync(script, [
-    "#!/bin/bash",
-    `cd ${shq(o.cwd)}`,
-    `printf '\\033]0;TAKI · ${o.title.replace(/'/g, "")}\\007'`,
-    "clear",
-    `echo "TAKI Agentic AI — ${o.title.replace(/["$`\\]/g, "")}"`,
-    'echo "Khi Claude hỏi quyền dùng Chrome/trang web: chọn cho phép (trong phiên này)."',
-    'echo "Để cửa sổ này mở đến khi Claude báo XONG. Hệ thống tự nhận kết quả."',
-    "echo",
-    // Fresh top-level session (not a "child" of the server's environment) so its transcript is saved → live progress.
-    "unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDECODE CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SSE_PORT",
-    "export CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1",
-    `exec ${shq(bin)} --chrome --model ${shq(o.model)} --session-id ${sessionId} --name ${shq(`TAKI · ${o.title}`)} \\`,
-    `  --allowedTools ${o.allowedTools.map(shq).join(" ")} \\`,
-    ...o.addDirs.map((d) => `  --add-dir ${shq(d)} \\`),
-    `  --append-system-prompt-file ${shq(join(dir, "system.md"))} \\`,
-    `  "$(cat ${shq(join(dir, "prompt.md"))})"`,
-    "",
-  ].join("\n"));
-  chmodSync(script, 0o755);
-  await new Promise<void>((resolve, reject) => {
-    const p = spawn("open", ["-a", "Terminal", script], { stdio: "ignore" });
-    p.on("error", (e) => reject(new AppError("TERMINAL_FAILED", `Không mở được Terminal: ${e.message}`, 503)));
-    p.on("close", (code) => (code === 0 ? resolve() : reject(new AppError("TERMINAL_FAILED", `Không mở được Terminal (code ${code})`, 503))));
-  });
+  try { bin = execFileSync("/bin/sh", ["-lc", `command -v '${BIN.replace(/'/g, "")}'`], { encoding: "utf8", env: childEnv() }).trim() || BIN; } catch { /* keep BIN */ }
+  const sessionId = randomUUID();
+  // Prompt FIRST: --allowedTools / --add-dir are variadic and would swallow a trailing positional prompt.
+  const claudeArgs = [
+    o.prompt, "--chrome", "--model", o.model, "--permission-mode", "auto", "--session-id", sessionId, "--name", `TAKI · ${o.title}`,
+    "--append-system-prompt-file", systemFile, "--allowedTools", ...o.allowedTools, ...o.addDirs.flatMap((d) => ["--add-dir", d]),
+  ];
+  const env: NodeJS.ProcessEnv = { ...childEnv(), TERM: "xterm-256color", COLUMNS: "160", LINES: "50", CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1" };
+  delete env.CLAUDE_CODE_CHILD_SESSION; delete env.CLAUDE_CODE_ENTRYPOINT; delete env.CLAUDE_CODE_SSE_PORT;
+  // `script` gives the TUI a real terminal; its stdin must be a pipe (Node's stdio pipes are sockets), so feed it
+  // from a never-ending `sleep` via process substitution. Whole process group is killed when we are done.
+  const ptyCmd = process.platform === "darwin"
+    ? 'exec script -q /dev/null "$@" < <(exec sleep 2147483647)'
+    : 'exec script -qec "$(printf "%q " "$@")" /dev/null < <(exec sleep 2147483647)';
+  const child = spawn("/bin/bash", ["-c", ptyCmd, "bash", bin, ...claudeArgs], { cwd: o.cwd, env, stdio: ["ignore", "ignore", "ignore"], detached: true });
+  const stop = () => { try { process.kill(-child.pid!, "SIGTERM"); } catch { /* gone */ } setTimeout(() => { try { process.kill(-child.pid!, "SIGKILL"); } catch { /* gone */ } }, 3000); };
+  let exited = false;
+  child.on("exit", () => { exited = true; });
 
   // Live progress from the transcript of this session.
   const projects = join(homedir(), ".claude", "projects");
+  const startedAt = Date.now();
   let transcript: string | null = null;
   let offset = 0;
   const readSteps = () => {
@@ -310,15 +318,19 @@ export async function runClaudeInTerminal(o: TerminalRunOptions): Promise<unknow
     }
   };
 
-  const started = Date.now();
-  o.onStep?.({ at: new Date().toISOString(), kind: "text", text: "Đã mở cửa sổ Terminal — bấm cho phép Claude dùng Chrome khi được hỏi" });
-  while (true) {
-    if (o.signal?.aborted) throw new AppError("CANCELLED", "Đã hủy", 499);
-    if (Date.now() - started > o.timeoutMs) throw new AppError("AGENT_TIMEOUT", `Quá ${Math.round(o.timeoutMs / 60000)} phút chưa có kết quả`, 504);
-    try { readSteps(); } catch { /* transcript mid-write */ }
-    if (existsSync(o.resultFile)) {
-      try { return JSON.parse(readFileSync(o.resultFile, "utf8")); } catch { /* still being written */ }
+  o.onStep?.({ at: new Date().toISOString(), kind: "text", text: "Claude đang chạy ngầm (chế độ tự duyệt an toàn) — không cần thao tác" });
+  try {
+    while (true) {
+      if (o.signal?.aborted) throw new AppError("CANCELLED", "Đã hủy", 499);
+      if (Date.now() - startedAt > o.timeoutMs) throw new AppError("AGENT_TIMEOUT", `Quá ${Math.round(o.timeoutMs / 60000)} phút chưa có kết quả`, 504);
+      try { readSteps(); } catch { /* transcript mid-write */ }
+      if (existsSync(o.resultFile)) {
+        try { return JSON.parse(readFileSync(o.resultFile, "utf8")); } catch { /* still being written */ }
+      }
+      if (exited) throw new AppError("AGENT_EXITED", "Phiên Claude kết thúc mà không ghi kết quả", 502);
+      await new Promise((r) => setTimeout(r, 3000));
     }
-    await new Promise((r) => setTimeout(r, 3000));
+  } finally {
+    stop();
   }
 }

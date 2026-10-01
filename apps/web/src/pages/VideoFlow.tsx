@@ -73,7 +73,7 @@ export function VideoFlow() {
         <span>Chrome cho Flow: {settings.data?.chromeProfileDir ? <b>{settings.data.chromeProfileName}{settings.data.chromeProfileEmail ? ` · ${settings.data.chromeProfileEmail}` : ""}</b> : settings.data?.browserDeviceId ? <b>{settings.data.browserLabel ?? settings.data.browserDeviceId.slice(0, 8)}</b> : <b className="text-amber-700 dark:text-amber-300">chưa chọn</b>}</span>
         <span>· Claude: {sys?.llm?.provider === "claude_cli" ? <Badge tone="green">tài khoản CLI</Badge> : <Badge tone="amber">cần chế độ tài khoản Claude</Badge>}</span>
         <Button size="sm" onClick={() => setPickBrowser(true)}>{hasBrowser ? "Đổi profile Chrome" : "Chọn profile Chrome"}</Button>
-        <span className="text-xs text-muted">Profile đó phải đăng nhập Google Flow và có cài + đăng nhập extension Claude in Chrome.</span>
+        <span className="text-xs text-muted">Profile đó phải đăng nhập Google Flow và có Claude in Chrome. Tạo video chạy ngầm hoàn toàn, chỉ báo khi xong.</span>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
@@ -155,7 +155,7 @@ export function VideoFlow() {
         <div className="space-y-2 text-sm">
           <p><b>{tool?.label}</b> · {form.title}</p>
           <ul className="list-disc space-y-1 pl-5 text-muted">
-            <li>Hệ thống mở <b>một cửa sổ Terminal</b> chạy Claude: khi Claude hỏi quyền dùng Chrome/trang web, bấm <b>cho phép (trong phiên này)</b>. Sau đó AI tự thao tác trên Flow của profile "{settings.data?.chromeProfileName ?? settings.data?.browserLabel ?? "đã chọn"}" khoảng {tool?.minutes ?? 40} phút — đừng đóng cửa sổ Terminal hay thao tác trên tab Flow.</li>
+            <li>Hệ thống <b>tự chạy ngầm, không cần Sếp bấm gì</b>: AI tự mở profile "{settings.data?.chromeProfileName ?? settings.data?.browserLabel ?? "đã chọn"}", viết kịch bản, tạo từng cảnh trên Flow, tải về, ghép + chèn phụ đề (khoảng {tool?.minutes ?? 40} phút). Chỉ có thông báo khi video đã xong. Đừng thao tác trên cửa sổ Chrome đó trong lúc chạy.</li>
             <li>Mỗi lần tạo cảnh tốn tín dụng Google Flow (tối đa 3 lần làm lại mỗi cảnh).</li>
             <li>Video thành phẩm vào hộp Duyệt; chỉ sau khi duyệt mới đăng <b>bản nháp</b> lên {form.channels.join(", ")}.</li>
           </ul>
@@ -261,7 +261,7 @@ function BrowserPicker({ open, current, onClose, onSaved }: { open: boolean; cur
           <span>{data ? `${data.profiles.length} profile · ${data.profiles.filter((p) => p.claudeExtension).length} profile có Claude in Chrome` : ""}</span>
           <Button size="sm" variant="ghost" onClick={load}>Quét lại</Button>
         </div>
-        <p className="rounded-xl bg-soft p-3 text-xs text-muted">Profile chưa có extension: bấm <b>Cài Claude in Chrome</b> → “Thêm vào Chrome” → đăng nhập tài khoản Claude trong extension → quay lại bấm <b>Kiểm tra kết nối</b>. “Kiểm tra kết nối” mở một cửa sổ Terminal ngắn: bấm cho phép Claude dùng Chrome, Claude đọc email tài khoản Google trong profile để xác nhận đúng profile.</p>
+        <p className="rounded-xl bg-soft p-3 text-xs text-muted">Profile chưa có extension: bấm <b>Cài Claude in Chrome</b> → “Thêm vào Chrome” → đăng nhập tài khoản Claude trong extension → quay lại bấm <b>Kiểm tra kết nối</b>. “Kiểm tra kết nối” chạy ngầm khoảng 1 phút: Claude đọc email tài khoản Google trong profile để xác nhận đúng profile (không cần bấm gì).</p>
       </div>
     </Modal>
   );

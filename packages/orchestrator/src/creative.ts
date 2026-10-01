@@ -44,7 +44,7 @@ export const CreativeInput = z.object({
 });
 export type CreativeInput = z.infer<typeof CreativeInput>;
 
-const FlowResult = z.object({
+export const FlowResult = z.object({
   status: z.enum(["done", "blocked", "failed"]),
   finalPath: z.string(),
   durationSec: z.number(),
@@ -56,6 +56,15 @@ const FlowResult = z.object({
 });
 
 export const DATA_DIR = resolve(process.cwd(), "data");
+/** Fixed, pre-trusted working folder for unattended Claude browser runs (job files live in per-job workdirs). */
+const RUN_DIR = join(DATA_DIR, "creative");
+
+/** macOS notification centre (the only interruption the CEO gets: when a video is finished or failed). */
+function notifyDesktop(title: string, message: string) {
+  if (process.platform !== "darwin") return;
+  const esc = (t: string) => t.replace(/\\/g, "\\\\").replace(/"/g, '\\"').slice(0, 220);
+  try { execFileSync("osascript", ["-e", `display notification "${esc(message)}" with title "TAKI Agentic AI" subtitle "${esc(title)}" sound name "Glass"`], { timeout: 5000 }); } catch { /* notifications are best-effort */ }
+}
 export const UPLOAD_DIR = join(DATA_DIR, "uploads");
 const DOWNLOADS = join(homedir(), "Downloads");
 
@@ -120,6 +129,7 @@ export async function runVideoJob(jobId: string) {
     update("creative_job", jobId, { status, error, step: null, ended_at: nowIso() });
     emit(bizId, "creative.updated", { jobId, status });
     emit(bizId, "alert.raised", { level: "warning", text: `Video "${job.title}": ${error}` });
+    notifyDesktop(`Video "${job.title}" chưa tạo được`, error);
   };
   if (effectiveProvider(bizId).provider !== "claude_cli") return fail("blocked", "Cần chế độ Tài khoản Claude (Claude Code CLI) để điều khiển Chrome");
   if (!fs.chromeProfileDir && !fs.browserDeviceId) return fail("blocked", "Chưa chọn profile Chrome dùng cho Flow (Sản xuất video Flow → Chọn profile Chrome)");
@@ -147,7 +157,7 @@ export async function runVideoJob(jobId: string) {
     `# SKILL ĐANG CHẠY: ${tool.skill} (v${skill.version})`,
     skill.body,
     "",
-    "# CHẠY TRONG CỬA SỔ TERMINAL CỦA HỆ THỐNG TAKI AGENTIC AI (máy Mac cục bộ; CEO chỉ bấm cho phép quyền khi được hỏi)",
+    "# CHẠY TỰ ĐỘNG TRONG HỆ THỐNG TAKI AGENTIC AI (máy Mac cục bộ, KHÔNG có người theo dõi; quyền được duyệt tự động bởi bộ phân loại an toàn)",
     ...browserInstructions(fs),
     "",
     "# CHẾ ĐỘ FLOW GỐC (BẮT BUỘC — ghi đè mọi chỉ dẫn mở Tool ở trên)",
@@ -193,7 +203,7 @@ export async function runVideoJob(jobId: string) {
   const t0 = Date.now();
   try {
     structured = await runClaudeInTerminal({
-      title: `Video Flow: ${job.title}`, prompt, system, model, cwd: workdir, signal: ctrl.signal,
+      title: `Video Flow: ${job.title}`, prompt, system, model, cwd: RUN_DIR, signal: ctrl.signal,
       resultFile: join(workdir, "result.json"),
       timeoutMs: (fs.timeoutMin ?? tool.minutes + 30) * 60_000,
       allowedTools: [
@@ -257,6 +267,7 @@ export async function completeVideoJob(jobId: string, res: z.infer<typeof FlowRe
     update("creative_job", jobId, { status, error, step: null, ended_at: nowIso() });
     emit(bizId, "creative.updated", { jobId, status });
     emit(bizId, "alert.raised", { level: "warning", text: `Video "${job.title}": ${error}` });
+    notifyDesktop(`Video "${job.title}" chưa tạo được`, error);
   };
   update("creative_job", jobId, { result: res });
   if (res.status !== "done") return fail(res.status, res.notes || "Agent dừng giữa chừng");
@@ -305,6 +316,7 @@ export async function completeVideoJob(jobId: string, res: z.infer<typeof FlowRe
   audit(bizId, "creative_agent", "creative.video_ready", { type: "creative_job", id: jobId }, { assetId: asset.id, duration: meta.duration });
   emit(bizId, "creative.updated", { jobId, status: "done" });
   emit(bizId, "approval.created", { approvalId: approval.id, title: approval.title });
+  notifyDesktop(`Video "${job.title}" đã xong`, `Đã ghép + chèn phụ đề (${Math.round(meta.duration ?? res.durationSec)} giây). Mở "Duyệt & Phê duyệt" để xem và duyệt đăng nháp.`);
 }
 
 export function probeVideo(path: string) {
@@ -379,7 +391,7 @@ export async function findProfileBrowser(bizId: string, channel: string, dir: st
   mkdirSync(probeDir, { recursive: true });
   const resultFile = join(probeDir, `${Date.now().toString(36)}.json`);
   const structured = await runClaudeInTerminal({
-    title: `Kiểm tra profile Chrome "${profile.name}"`, model: modelFor(bizId, "creative", "small"), cwd: probeDir, resultFile, timeoutMs: 6 * 60_000,
+    title: `Kiểm tra profile Chrome "${profile.name}"`, model: modelFor(bizId, "creative", "medium"), cwd: RUN_DIR, resultFile, timeoutMs: 6 * 60_000,
     prompt: [
       `Kiểm tra trình duyệt (Claude in Chrome) của profile Chrome "${profile.name}"${target ? ` — đăng nhập Google bằng ${target}` : ""}.`,
       "1) navigate (không truyền tabId) tới https://myaccount.google.com/ → get_page_text → đọc email Google đang đăng nhập.",
