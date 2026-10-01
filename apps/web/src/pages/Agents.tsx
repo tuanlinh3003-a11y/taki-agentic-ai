@@ -16,7 +16,7 @@ const CANCELLABLE = ["pending", "ready", "running", "in_review", "revising", "aw
 const usd = (micros: number | null | undefined) => `$${((micros ?? 0) / 1e6).toFixed((micros ?? 0) < 1e6 ? 3 : 2)}`;
 
 // Agents that call Claude through the LLM Gateway (others are deterministic code and/or Jev).
-const LLM_AGENTS = new Set(["brief", "market_research", "strategy", "content", "video_script", "seo_web", "chat", "ads", "review"]);
+const LLM_AGENTS = new Set(["assistant", "brief", "market_research", "strategy", "content", "video_script", "seo_web", "chat", "ads", "review"]);
 
 export function Agents() {
   const agents = useApi<any[]>("agents", ["task.", "review."]);
@@ -74,7 +74,7 @@ export function Agents() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2.5">
                     <span className={cx("grid h-9 w-9 shrink-0 place-items-center rounded-xl", enabled ? "bg-blue-500/10 text-blue-600" : "bg-soft text-muted")}><Bot className="h-5 w-5" /></span>
-                    <div className="min-w-0"><p className="truncate font-semibold text-ink">{a.label}</p><p className="text-[11px] text-muted">Khâu {a.stage} · {a.done}/{a.tasks} tác vụ xong</p></div>
+                    <div className="min-w-0"><p className="truncate font-semibold text-ink">{a.label}</p><p className="text-[11px] text-muted">{a.stage === 0 ? "Tổng điều phối" : `Khâu ${a.stage}`} · {a.done}/{a.tasks} tác vụ xong</p></div>
                   </div>
                   <Toggle checked={enabled} onChange={(v) => putConfig(a.key, { enabled: v }, `${a.label} đã ${v ? "bật" : "tắt"}`)} />
                 </div>

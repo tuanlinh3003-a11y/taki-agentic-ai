@@ -6,6 +6,7 @@ import { runAllRules, executeAction, publishCandidate, startAdsReport, syncAdMet
 import { expireApprovals } from "./approvals.ts";
 import { learnDaily } from "./learning.ts";
 import { reattachVideoJob, runDraftUpload, runVideoJob } from "./creative.ts";
+import { ensureAssistantAgent } from "./assistant.ts";
 import { runPublishJob, schedulePublish, snapshotPost } from "./publishing.ts";
 import { startScheduler, startWorkers, type Handler } from "./queue.ts";
 import { runTask } from "./runtime.ts";
@@ -26,6 +27,7 @@ export * from "./automations.ts";
 export * from "./zalo-followup.ts";
 export * from "./chrome-profiles.ts";
 export * from "./flow-browser.ts";
+export * from "./assistant.ts";
 
 export async function dailyReport(bizId: string) {
   const ads = q.all<Row>("SELECT id FROM ad WHERE biz_id = ?", bizId);
@@ -76,6 +78,7 @@ export function startOrchestrator() {
   registerTelegramFromDb();
   registerZaloProxy();
   for (const b of q.all<Row>("SELECT id FROM biz")) {
+    ensureAssistantAgent(b.id);
     ensureAutomations(b.id);
     // Configs can run every 5 minutes: the tick and rule evaluation must be at least that frequent.
     if (!q.get("SELECT id FROM schedule WHERE biz_id = ? AND name = 'automations.tick'", b.id))

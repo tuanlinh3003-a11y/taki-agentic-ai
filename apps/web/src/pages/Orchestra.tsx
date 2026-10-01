@@ -7,6 +7,7 @@ import {
 import { api, useApi, useEvents } from "../lib/api";
 import { hhmm, num, timeAgo, vnd } from "../lib/format";
 import { Badge, Button, Field, Modal, cx, inputCls, useToast } from "../components/ui";
+import { NguyetAvatar } from "../components/AssistantPanel";
 
 // ---------------- Visual model ----------------
 type Status = "idle" | "running" | "done" | "approval" | "error";
@@ -187,9 +188,9 @@ export function Orchestra() {
                 <div className="absolute" style={{ left: CENTER.x - 92, top: CENTER.y - 105 }}>
                   <div className={cx("relative grid h-[184px] w-[184px] place-items-center rounded-full border-4 border-violet-200 bg-gradient-to-b from-violet-50 to-white text-center shadow-[0_0_0_10px_rgba(139,92,246,0.06)] dark:border-violet-500/30 dark:from-violet-500/10 dark:to-card", anyRunning && "animate-[pulse_2.4s_ease-in-out_infinite]")}>
                     <div>
-                      <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-violet-600 text-white shadow-lg shadow-violet-500/30"><Bot className="h-8 w-8" /></span>
+                      <button onClick={() => window.dispatchEvent(new CustomEvent("nguyet:ask", { detail: "Báo cáo nhanh: các agent đang làm gì, việc nào cần Sếp quyết?" }))} title="Hỏi Ngân Nguyệt" className="mx-auto block"><NguyetAvatar size={56} /></button>
                       <p className="mt-2 text-lg font-extrabold tracking-wide text-violet-800 dark:text-violet-200">AI ĐIỀU PHỐI</p>
-                      <p className="text-xs text-violet-600">Orchestrator</p>
+                      <p className="text-xs text-violet-600">Ngân Nguyệt · Orchestrator</p>
                       <Link to="/approvals" className="mt-1 inline-block rounded-full border border-violet-200 bg-white px-3 py-0.5 text-[11px] font-medium text-violet-700 dark:border-violet-500/30 dark:bg-card">CEO duyệt quyết định{data?.summary?.pending ? ` · ${data.summary.pending}` : ""}</Link>
                     </div>
                   </div>

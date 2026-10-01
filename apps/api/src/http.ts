@@ -17,7 +17,10 @@ export function routes(app: FastifyInstance) {
       if (hit && Date.now() - hit.at < 24 * 3600_000) return hit.body;
     }
     // Single-tenant local build: biz from the workspace; `biz_id` is already on every table for multi-biz later.
-    const ctx: Ctx = { bizId: defaultBizId(), actor: "Phòng Marketing TAKI", body: req.body ?? {}, query: req.query ?? {}, params: req.params ?? {}, req };
+    // Ngân Nguyệt's tools call this API from the same machine and sign their changes (audit log shows who did what).
+    const as = req.headers["x-taki-actor"];
+    const actor = typeof as === "string" && as && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.ip) ? decodeURIComponent(as).slice(0, 60) : "Phòng Marketing TAKI";
+    const ctx: Ctx = { bizId: defaultBizId(), actor, body: req.body ?? {}, query: req.query ?? {}, params: req.params ?? {}, req };
     const out = await h(ctx);
     if (key && req.method !== "GET") idem.set(`${req.url}:${key}`, { at: Date.now(), body: out ?? { ok: true } });
     return out ?? { ok: true };

@@ -281,6 +281,25 @@ CREATE TABLE IF NOT EXISTS automation_run (
 );
 CREATE INDEX IF NOT EXISTS automation_run_recent ON automation_run (automation_id, created_at DESC);
 
+-- Ngân Nguyệt: the CEO's command assistant (chat threads, dispatched work, confirm-before-act cards)
+CREATE TABLE IF NOT EXISTS assistant_thread (
+  id TEXT PRIMARY KEY, biz_id TEXT NOT NULL, title TEXT NOT NULL, session_id TEXT NOT NULL, model TEXT,
+  started INTEGER NOT NULL DEFAULT 0, last_message_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS assistant_message (
+  id TEXT PRIMARY KEY, biz_id TEXT NOT NULL, thread_id TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'done', log TEXT NOT NULL DEFAULT '[]', model TEXT, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS assistant_message_thread ON assistant_message (thread_id, created_at);
+CREATE TABLE IF NOT EXISTS assistant_dispatch (
+  id TEXT PRIMARY KEY, biz_id TEXT NOT NULL, thread_id TEXT, kind TEXT NOT NULL, ref_type TEXT NOT NULL, ref_id TEXT NOT NULL,
+  title TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS assistant_action (
+  id TEXT PRIMARY KEY, biz_id TEXT NOT NULL, thread_id TEXT, title TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '',
+  params TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', result TEXT, decided_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+
 -- MCP
 CREATE TABLE IF NOT EXISTS mcp_key (
   id TEXT PRIMARY KEY, biz_id TEXT NOT NULL, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, key_last4 TEXT NOT NULL,

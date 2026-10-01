@@ -37,7 +37,7 @@ function ensureStream() {
   const types = [
     "task.updated", "approval.created", "approval.decided", "review.completed", "post.published", "post.scored",
     "action.executed", "conversation.message_in", "conversation.message_out", "conversation.handoff", "lead.graded",
-    "metrics.updated", "alert.raised", "proposal.created", "proposal.applied", "goal.created", "creative.updated", "automation.ran",
+    "metrics.updated", "alert.raised", "proposal.created", "proposal.applied", "goal.created", "creative.updated", "automation.ran", "assistant.updated",
   ];
   for (const t of types) es.addEventListener(t, (ev) => {
     const data = JSON.parse((ev as MessageEvent).data);

@@ -19,6 +19,7 @@ import { creativeRoutes } from "./routes/creative.ts";
 import { connectRoutes } from "./routes/connect.ts";
 import { zaloRoutes } from "./routes/zalo.ts";
 import { orchestraRoutes } from "./routes/orchestra.ts";
+import { assistantRoutes } from "./routes/assistant.ts";
 import { seed } from "./seed.ts";
 
 const PORT = Number(process.env.API_PORT ?? 8787);
@@ -45,6 +46,7 @@ async function main() {
   connectRoutes(app);
   zaloRoutes(app);
   orchestraRoutes(app);
+  assistantRoutes(app);
 
   const dist = resolve(process.cwd(), "apps/web/dist");
   if (existsSync(dist)) {

@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AdsLayout } from "./components/AdsLayout";
 import { Layout } from "./components/Layout";
+import { AssistantPanel } from "./components/AssistantPanel";
 import { ToastProvider } from "./components/ui";
 import { Overview } from "./pages/Overview";
 import { Dna } from "./pages/Dna";
@@ -35,7 +36,12 @@ function Keep({ to }: { to: string }) {
 }
 function Shell({ children }: { children: React.ReactNode }) {
   const loc = useLocation();
-  return loc.pathname.startsWith("/ads") ? <AdsLayout>{children}</AdsLayout> : <Layout>{children}</Layout>;
+  return (
+    <>
+      {loc.pathname.startsWith("/ads") ? <AdsLayout>{children}</AdsLayout> : <Layout>{children}</Layout>}
+      <AssistantPanel />
+    </>
+  );
 }
 
 export function App() {

@@ -82,6 +82,15 @@ Nguồn: `~/.claude/skills` (skill) và `~/.claude/agents/mkt-*.md` (nhân viên
 
 Mọi agent gọi Claude đều nhận lớp **DNA** (`taki-dna` + references, hồ sơ `phong-marketing`). Skill viết cho phiên tương tác nên hệ thống giữ phương pháp/tiêu chí, bỏ các bước hỏi lại, ghi file, gọi tool. Mỗi lần chạy ghi lại phiên bản skill đã dùng (`task_run.skills`).
 
+## Trợ lý Ngân Nguyệt (tổng điều phối)
+
+Nút **Ngân Nguyệt** ở góc phải mọi trang mở khung chat điều hành: Sếp ra lệnh bằng lời, Ngân Nguyệt làm ngay.
+
+- **Trò chuyện**: giao việc tức thì cho các agent (Content / Video / SEO, chuỗi chiến dịch brief → nghiên cứu → chiến lược → nội dung, báo cáo Ads, video Flow…), xem và can thiệp mọi tác vụ, báo cáo bằng số liệu thật. Chữ hiện dần, kèm các bước công cụ đã gọi.
+- **Việc giao**: những việc Ngân Nguyệt đã giao + trạng thái trực tiếp. **Phát hiện**: lỗi/kẹt/chờ duyệt cần chú ý, bấm "Nhờ Ngân Nguyệt xử lý". **Lịch sử**: các cuộc trò chuyện (mỗi cuộc giữ ngữ cảnh riêng).
+- Cách chạy: mỗi tin nhắn là `claude -p` (tài khoản Claude của Sếp) nối tiếp phiên của cuộc trò chuyện, chỉ có 1 bộ công cụ — `packages/orchestrator/bin/taki-mcp.mjs` (MCP) gọi chính API hệ thống, ký tên "Ngân Nguyệt" trong nhật ký.
+- An toàn: đọc + giao việc (vẫn qua Review/Duyệt) chạy ngay; thao tác nhạy cảm (duyệt đăng, trả lời khách, đổi quảng cáo, tốn tín dụng Flow, bật/tắt luồng/agent, kill switch, mọi lệnh ghi qua `goi_api`) thành **thẻ xác nhận** Sếp bấm — trừ khi Sếp bật "Tự thực hiện". Công cụ không tự xác nhận được thẻ, không đụng khóa MCP / model / thông tin kết nối.
+
 ## Sản xuất video Google Flow (Creative Agent)
 
 Trang **Sản xuất video Flow** chạy 3 skill Flow của phòng MKT (`flow-review-do-an-vat`, `flow-cooking-director-video`, `flow-cinematic-short-film`) **bên trong đúng Tool Flow của skill** (vd. "Review Đồ Ăn Vặt AI V6"), hoàn toàn tự động:
