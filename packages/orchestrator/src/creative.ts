@@ -39,6 +39,8 @@ export const CreativeInput = z.object({
   channels: z.array(z.string()).min(1).default(["tiktok"]),
   brand: z.enum(["taki", "other"]).default("other"), // "other" = affiliate/client channel: TAKI DNA is NOT applied
   sourceContentId: z.string().optional(),
+  /** Veo model in Flow's native generator (custom Tools run in a sandboxed iframe the browser agent cannot click). */
+  veoModel: z.enum(["Veo 3.1 - Lite", "Veo 3.1 - Fast", "Veo 3.1 - Quality"]).default("Veo 3.1 - Fast"),
 });
 export type CreativeInput = z.infer<typeof CreativeInput>;
 
@@ -147,6 +149,16 @@ export async function runVideoJob(jobId: string) {
     "",
     "# CHẠY TRONG CỬA SỔ TERMINAL CỦA HỆ THỐNG TAKI AGENTIC AI (máy Mac cục bộ; CEO chỉ bấm cho phép quyền khi được hỏi)",
     ...browserInstructions(fs),
+    "",
+    "# CHẾ ĐỘ FLOW GỐC (BẮT BUỘC — ghi đè mọi chỉ dẫn mở Tool ở trên)",
+    `- KHÔNG mở Tool "${tool.label}" trên Flow: Tool chạy trong iframe sandbox (scf.usercontent.goog) mà Claude in Chrome không click/gõ được. Bạn TỰ làm phần việc của Tool theo đúng phương pháp của skill ở trên, rồi tạo clip bằng trình tạo GỐC của Flow.`,
+    "- B1 KỊCH BẢN (tự làm, không cần trình duyệt): theo skill, viết hồ sơ nhân vật/sản phẩm cố định (ngoại hình, trang phục, bối cảnh, ánh sáng — dùng lại NGUYÊN VĂN ở mọi cảnh để đồng nhất), chia cảnh 8 giây (số cảnh = làm tròn lên thời lượng/8), mỗi cảnh: lời thoại tiếng Việt ≤ 20 từ đúng giọng/miền, hành động, góc máy.",
+    "- B2 PROMPT TỪNG CẢNH: mô tả bằng tiếng Anh cho Veo (subject, action, camera, lighting, \"vertical 9:16\"), lời thoại đặt trong ngoặc kép và ghi rõ: speaks Vietnamese with a <Northern/Southern> Vietnamese accent; không chữ/watermark trên hình.",
+    `- B3 TRÊN FLOW: Home → New project (đặt tên = tên video). Bấm chip cài đặt cạnh ô "What do you want to create?" → chọn Video, khổ 9:16, model "${input.veoModel}", x1${input.images.length ? ", chế độ Ingredients" : ""}. Kiểm tra dòng "Generating will use N credits" và ghi N vào notes.`,
+    input.images.length ? "- Ảnh tham chiếu: nút + cạnh ô prompt → tải ảnh lên bằng file_upload/upload_image (đường dẫn ở phần yêu cầu) → dùng làm Ingredients cho mọi cảnh có nhân vật/sản phẩm đó." : "",
+    "- Từng cảnh theo thứ tự: dán prompt vào ô \"What do you want to create?\" → bấm mũi tên gửi → chờ (screenshot mỗi ~20 giây, tối đa 6 phút/cảnh) → xem clip: sai nhân vật/sản phẩm/lời → tạo lại (tối đa 2 lần/cảnh).",
+    "- Tải từng clip đạt: mở clip → nút tải xuống (Download) → chọn bản gốc/720p. File về thư mục Downloads.",
+    "- Nút/ô nằm ngoài iframe nên định vị bằng find/read_page; nếu click theo ref không phản hồi thì click theo toạ độ từ screenshot.",
     "- Chỉ thao tác trên Flow (flow.google.com / labs.google). KHÔNG đăng nhập hộ, KHÔNG nhập mật khẩu, KHÔNG đổi cài đặt tài khoản, KHÔNG xóa gì. Chưa đăng nhập / hết tín dụng / không thấy công cụ → status \"blocked\" kèm lý do trong notes.",
     "- KHÔNG có người để hỏi: bỏ qua mọi bước AskUserQuestion/SendUserMessage/SendUserFile; thiếu thông tin thì tự giả định hợp lý và ghi vào notes.",
     "- Đây KHÔNG phải cloud: bỏ qua device_request_folder_access, device_stage_files, device_commit_files, /mnt/user-data.",

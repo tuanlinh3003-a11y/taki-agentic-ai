@@ -24,7 +24,7 @@ export function VideoFlow() {
   const [pickBrowser, setPickBrowser] = useState(false);
   const toast = useToast();
 
-  const [form, setForm] = useState<any>({ tool: "review-do-an-vat", title: "", brand: "other", product: "", brief: "", durationSec: 48, voice: "", hookTitle: "", cta: "", channels: ["tiktok"], images: [] as { path: string; role: string; name: string }[] });
+  const [form, setForm] = useState<any>({ tool: "review-do-an-vat", title: "", brand: "other", product: "", brief: "", durationSec: 48, veoModel: "Veo 3.1 - Fast", voice: "", hookTitle: "", cta: "", channels: ["tiktok"], images: [] as { path: string; role: string; name: string }[] });
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const set = (p: any) => setForm((f: any) => ({ ...f, ...p }));
@@ -98,7 +98,10 @@ export function VideoFlow() {
                 <select className={inputCls} value={form.brand} onChange={(e) => set({ brand: e.target.value })}><option value="other">Kênh khác / khách hàng</option><option value="taki">TAKI Academy (áp DNA)</option></select>
               </Field>
               <Field label="Sản phẩm"><input className={inputCls} value={form.product} onChange={(e) => set({ product: e.target.value })} /></Field>
-              <Field label="Thời lượng (giây)"><input type="number" className={inputCls} value={form.durationSec} onChange={(e) => set({ durationSec: e.target.value })} /></Field>
+              <Field label="Thời lượng (giây)" hint={`${Math.max(1, Math.ceil((Number(form.durationSec) || 8) / 8))} cảnh × 8 giây`}><input type="number" className={inputCls} value={form.durationSec} onChange={(e) => set({ durationSec: e.target.value })} /></Field>
+              <Field label="Model Veo trên Flow" hint="Lite rẻ nhất (≈10 credit/cảnh) · Quality đẹp nhất, tốn credit hơn">
+                <select className={inputCls} value={form.veoModel} onChange={(e) => set({ veoModel: e.target.value })}>{["Veo 3.1 - Lite", "Veo 3.1 - Fast", "Veo 3.1 - Quality"].map((m) => <option key={m} value={m}>{m}</option>)}</select>
+              </Field>
             </div>
             <Field label="Thông tin sản phẩm / chủ đề / kịch bản"><textarea rows={6} className={inputCls} value={form.brief} onChange={(e) => set({ brief: e.target.value })} placeholder="Giá, vị, điểm nổi bật, ưu đãi, link affiliate… hoặc chủ đề phim + thông điệp" /></Field>
             <div className="grid gap-3 sm:grid-cols-3">
