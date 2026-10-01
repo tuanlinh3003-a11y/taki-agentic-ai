@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { audit, bizSettings, bus, byId, insert, q, update, type Row } from "@dotaka/db";
 import { AppError, logger, nowIso, uuidv7 } from "@dotaka/shared";
@@ -12,42 +12,58 @@ import { AppError, logger, nowIso, uuidv7 } from "@dotaka/shared";
  */
 export const BRAIN_ROOT = resolve(process.env.BRAIN_ROOT ?? "data/brain");
 
-/** Folder names — the ONE place they are defined (TAKI's own Vietnamese layout). */
+/**
+ * Folder names — the ONE place they are defined. The layout follows the Agentic AI loop:
+ * DNA → thị trường → chiến dịch → nội dung / video → review → đăng & quảng cáo → bán hàng → số liệu → feedback loop.
+ */
 export const F = {
-  overview: "1. Tổng quan", inbox: "2. Hộp thư", daily: "3. Nhật ký ngày", weekly: "4. Tổng kết tuần", monthly: "5. Tổng kết tháng",
-  plan: "6. Kế hoạch & nhắc việc", brand: "7. Thương hiệu", projects: "8. Dự án", marketing: "9. Cỗ máy marketing", knowledge: "10. Tri thức",
-  data: "11. Dữ liệu", lessons: "12. Bài học", ideas: "13. Ý tưởng & hội thoại", playbook: "14. Sổ tay quy trình", team: "15. Đội AI",
-  life: "16. Đời sống", archive: "17. Lưu trữ", files: "18. Tệp & hình ảnh",
+  overview: "1. Tổng quan", inbox: "2. Hộp thư", logs: "3. Nhật ký vận hành", plan: "4. Mục tiêu & kế hoạch", brand: "5. Thương hiệu & DNA",
+  market: "6. Khách hàng & thị trường", campaigns: "7. Chiến dịch", content: "8. Nội dung", video: "9. Video", ads: "10. Quảng cáo",
+  sales: "11. Bán hàng & chăm sóc", review: "12. Review & kiểm duyệt", feedback: "13. Feedback loop", metrics: "14. Số liệu & báo cáo",
+  knowledge: "15. Tri thức", playbook: "16. Sổ tay quy trình", team: "17. Đội AI", ideas: "18. Ý tưởng & hội thoại", archive: "19. Lưu trữ",
+  files: "20. Tệp & hình ảnh",
+  // sub-folders the system writes to
+  daily: "3. Nhật ký vận hành/Ngày", weekly: "3. Nhật ký vận hành/Tuần", monthly: "3. Nhật ký vận hành/Tháng", reminders: "4. Mục tiêu & kế hoạch/Nhắc việc",
 } as const;
 export const DASHBOARD_NOTE = `${F.overview}/Bảng điều hành.md`;
-/** Folder layout of a new Agentic Brain, with what each folder is for. */
-export const VAULT_FOLDERS: { name: string; about: string }[] = [
-  { name: F.overview, about: "Bảng điều hành: số liệu chính, việc cần quyết, lối tắt. Hệ thống tự cập nhật." },
+/** Top-level folders of a new Agentic Brain (+ sub-folders created up front), with what each is for. */
+export const VAULT_FOLDERS: { name: string; about: string; subs?: string[] }[] = [
+  { name: F.overview, about: "Bảng điều hành, tiến độ mục tiêu năm, việc chờ Sếp quyết. Hệ thống tự cập nhật." },
   { name: F.inbox, about: "Hộp thư: mọi thứ kéo/dán vào nằm ở đây trước, phân loại sau." },
-  { name: F.daily, about: "Nhật ký từng ngày: hệ thống tự ghi những gì các agent đã làm; Sếp ghi thêm suy nghĩ." },
-  { name: F.weekly, about: "Tổng kết tuần (tự tạo mỗi đầu tuần từ nhật ký ngày)." },
-  { name: F.monthly, about: "Tổng kết tháng (tự tạo đầu tháng)." },
-  { name: F.plan, about: "Kế hoạch & nhắc việc (ghi chú có hạn `due:` được nhắc đúng giờ)." },
-  { name: F.brand, about: "Thương hiệu: DNA, giá trị, giọng nói, định vị." },
-  { name: F.projects, about: "Dự án / chiến dịch: mỗi mục tiêu một thư mục, gồm brief, nghiên cứu, chiến lược." },
-  { name: F.marketing, about: "Cỗ máy marketing: nội dung, video, quảng cáo, báo cáo do agent tạo." },
-  { name: F.knowledge, about: "Tri thức sản phẩm, chính sách, FAQ — các agent dùng để trả lời khách và viết nội dung." },
-  { name: F.data, about: "Dữ liệu thô / bảng số liệu lưu cho phân tích." },
-  { name: F.lessons, about: "Bài học hệ thống rút ra từ kết quả + góp ý của Sếp." },
-  { name: F.ideas, about: "Ý tưởng, suy nghĩ, hội thoại với Ngân Nguyệt." },
-  { name: F.playbook, about: "Sổ tay quy trình: kỹ năng (skill) của từng nhân viên AI, thuật ngữ, cách làm." },
-  { name: F.team, about: "Đội AI: hồ sơ từng agent — vai trò, quyền, việc gần đây (tự cập nhật)." },
-  { name: F.life, about: "Đời sống cá nhân, sức khỏe, gia đình." },
+  { name: F.logs, about: "Nhật ký vận hành: Ngày (tự ghi việc các agent đã làm) · Tuần · Tháng (tự tổng kết).", subs: ["Ngày", "Tuần", "Tháng"] },
+  { name: F.plan, about: "Mục tiêu & kế hoạch: OKR, kế hoạch tháng/quý, ngân sách, nhắc việc (ghi chú có `due:` được nhắc đúng giờ).", subs: ["Nhắc việc"] },
+  { name: F.brand, about: "Thương hiệu & DNA: định vị, sản phẩm, ưu đãi, giọng nói, claim bị cấm." },
+  { name: F.market, about: "Khách hàng & thị trường: chân dung khách, insight & nỗi đau, hồ sơ đối thủ, nghiên cứu thị trường.", subs: ["Chân dung khách hàng", "Đối thủ", "Nghiên cứu"] },
+  { name: F.campaigns, about: "Chiến dịch: mỗi chiến dịch một thư mục — brief → nghiên cứu → chiến lược → kết quả." },
+  { name: F.content, about: "Nội dung: bài viết đa kênh, bài SEO, lịch đăng, thư viện bài thắng.", subs: ["Bài viết", "SEO", "Thư viện bài thắng"] },
+  { name: F.video, about: "Video: kịch bản → video Flow → bản hoàn thiện + caption; kho hook, video viral tham khảo, video thắng.", subs: ["Kịch bản", "Video Flow", "Kho hook", "Thư viện video thắng"] },
+  { name: F.ads, about: "Quảng cáo: báo cáo Ads, quyết định scale/tắt & lý do, mẫu quảng cáo.", subs: ["Báo cáo", "Quyết định"] },
+  { name: F.sales, about: "Bán hàng & chăm sóc: lead nóng, hội thoại đáng chú ý, follow-up Zalo, kịch bản chốt, xử lý từ chối.", subs: ["Kịch bản chốt"] },
+  { name: F.review, about: "Review & kiểm duyệt: mục bị chặn & lý do, lỗi hay gặp, bộ tiêu chí chấm.", subs: ["Bị chặn"] },
+  { name: F.feedback, about: "Feedback loop: bài học hệ thống rút ra, lý do Sếp từ chối, đề xuất thay đổi, thử nghiệm A/B, góp ý cho Ngân Nguyệt — các agent đọc trước khi làm việc.", subs: ["Bài học", "Sếp từ chối", "Đề xuất thay đổi", "Thử nghiệm"] },
+  { name: F.metrics, about: "Số liệu & báo cáo: KPI, phễu bài → quảng cáo → hội thoại → đơn, dữ liệu thô.", subs: ["Dữ liệu thô"] },
+  { name: F.knowledge, about: "Tri thức: sản phẩm, chính sách, FAQ — Chat Agent dùng để trả lời khách, Content Agent dùng để viết." },
+  { name: F.playbook, about: "Sổ tay quy trình: kỹ năng (skill) của từng nhân viên AI, SOP, thuật ngữ, mẫu ghi chú.", subs: ["Mẫu ghi chú"] },
+  { name: F.team, about: "Đội AI: hồ sơ từng agent và Ngân Nguyệt — vai trò, quyền, việc gần đây (tự cập nhật)." },
+  { name: F.ideas, about: "Ý tưởng của Sếp và hội thoại với Ngân Nguyệt." },
   { name: F.archive, about: "Lưu trữ: những gì đã xong / không dùng nữa." },
   { name: F.files, about: "Tệp & hình ảnh kéo/dán vào, logo, tài nguyên thương hiệu." },
 ];
-/** Older layout (first version) → current names; applied once to existing vaults. */
+/** Earlier layouts → current folders, applied in order to existing vaults (notes and their ids are kept). */
 const LEGACY: [string, string][] = [
+  // first layout (00 - Dashboard …)
   ["00 - Dashboard", F.overview], ["01 - Inbox", F.inbox], ["01 - Daily Log", F.daily], ["02 - Weekly Log", F.weekly], ["03 - Monthly Log", F.monthly],
-  ["04 - Future Log", F.plan], ["02 - Identity", F.brand], ["03 - Work", F.projects], ["04 - Marketing Engine", F.marketing], ["05 - Knowledge", F.knowledge],
-  ["05 - Data Cache", F.data], ["07 - Learning", F.lessons], ["08 - Thinking", F.ideas], ["10 - Wiki", F.playbook], ["agents", F.team],
-  ["06 - Life", F.life], ["09 - Archive", F.archive], ["attachments", F.files], ["assets", F.files],
-  [`${F.playbook}/Skills`, `${F.playbook}/Kỹ năng`], [`${F.lessons}/Bài học`, `${F.lessons}/Từ kết quả`],
+  ["04 - Future Log", F.reminders], ["02 - Identity", F.brand], ["03 - Work", F.campaigns], ["04 - Marketing Engine/Nội dung", `${F.content}/Bài viết`],
+  ["04 - Marketing Engine/Video", `${F.video}/Video Flow`], ["04 - Marketing Engine/Quảng cáo", `${F.ads}/Báo cáo`], ["04 - Marketing Engine", F.ideas],
+  ["05 - Knowledge", F.knowledge], ["05 - Data Cache", `${F.metrics}/Dữ liệu thô`], ["07 - Learning/Bài học", `${F.feedback}/Bài học`], ["07 - Learning", F.feedback],
+  ["08 - Thinking", F.ideas], ["10 - Wiki/Skills", `${F.playbook}/Kỹ năng`], ["10 - Wiki", F.playbook], ["agents", F.team], ["06 - Life", `${F.archive}/Đời sống`],
+  ["09 - Archive", F.archive], ["attachments", F.files], ["assets", F.files],
+  // second layout (1. Tổng quan … 18. Tệp & hình ảnh)
+  ["3. Nhật ký ngày", F.daily], ["4. Tổng kết tuần", F.weekly], ["5. Tổng kết tháng", F.monthly], ["6. Kế hoạch & nhắc việc", F.reminders],
+  ["7. Thương hiệu", F.brand], ["8. Dự án", F.campaigns], ["9. Cỗ máy marketing/Nội dung", `${F.content}/Bài viết`], ["9. Cỗ máy marketing/Video", `${F.video}/Video Flow`],
+  ["9. Cỗ máy marketing/Quảng cáo", `${F.ads}/Báo cáo`], ["9. Cỗ máy marketing", F.ideas], ["10. Tri thức", F.knowledge], ["11. Dữ liệu", `${F.metrics}/Dữ liệu thô`],
+  ["12. Bài học/Từ kết quả", `${F.feedback}/Bài học`], ["12. Bài học", F.feedback], ["13. Ý tưởng & hội thoại", F.ideas], ["14. Sổ tay quy trình", F.playbook],
+  ["15. Đội AI", F.team], ["16. Đời sống", `${F.archive}/Đời sống`], ["17. Lưu trữ", F.archive], ["18. Tệp & hình ảnh", F.files],
 ];
 const reEsc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Notes in this folder feed the agents' knowledge retrieval (also what Chat Agent may tell customers — so internal
@@ -123,6 +139,7 @@ function writeObsidianConfig(root: string) {
 function scaffold(root: string) {
   for (const f of VAULT_FOLDERS) {
     mkdirSync(join(root, f.name), { recursive: true });
+    for (const sub of f.subs ?? []) mkdirSync(join(root, f.name, sub), { recursive: true });
     const readme = join(root, f.name, guideName(f.name));
     if (!existsSync(readme) && f.name !== F.files) {
       writeFileSync(readme, `---\ntype: guide\n---\n# ${f.name.replace(/^\d+\.\s*/, "")}\n\n${f.about}\n\nVề [[Bảng điều hành]]\n`);
@@ -133,36 +150,49 @@ function scaffold(root: string) {
   if (!existsSync(join(root, ".obsidian", "app.json"))) writeObsidianConfig(root);
 }
 
-/** One-time move from the first folder layout (00 - Dashboard …) to the current one — notes and their ids are kept. */
+/** Move an existing vault from an earlier layout to the current one — notes and their ids are kept; only system-written
+ *  guides / duplicate logs go to .trash. Runs at start-up and is a no-op once nothing old is left. */
 function migrateLayout(v: Row) {
   if (!LEGACY.some(([from]) => existsSync(join(v.path, from)))) return false;
-  const trash = join(v.path, ".trash", `layout-v1-${Date.now()}`);
+  const trash = join(v.path, ".trash", `bo-cuc-cu-${Date.now()}`);
+  mkdirSync(trash, { recursive: true });
+  const generated = (file: string) => { try { return /^---\ntype: (daily|weekly|monthly|dashboard|guide|agent)\n/.test(readFileSync(file, "utf8")); } catch { return false; } };
   const move = (from: string, to: string) => {
     const a = join(v.path, from), b = join(v.path, to);
-    if (!existsSync(a)) return;
+    if (!existsSync(a) || a === b) return;
     if (!existsSync(b)) { mkdirSync(dirname(b), { recursive: true }); renameSync(a, b); return; }
-    for (const e of readdirSync(a)) { // merge into an existing folder
+    for (const e of readdirSync(a)) { // merge into the existing folder
       const src = join(a, e);
       let dst = join(b, e);
-      // Same system-generated log/dashboard in both places → the current one wins, the old copy goes to trash
-      if (existsSync(dst) && e.endsWith(".md") && /^---\ntype: (daily|weekly|monthly|dashboard|guide|agent)\n/.test(readFileSync(src, "utf8"))) { renameSync(src, join(trash, `${from.replace(/\//g, "_")}-${e}`)); continue; }
+      if (existsSync(dst) && e.endsWith(".md") && generated(src)) { renameSync(src, join(trash, `${from.replace(/\//g, "_")}-${e}`)); continue; }
+      if (existsSync(dst) && statSync(src).isDirectory() && statSync(dst).isDirectory()) { move(relOf(v, src), relOf(v, dst)); continue; }
       for (let i = 2; existsSync(dst); i++) dst = join(b, e.replace(/(\.[^.]+)?$/, ` ${i}$1`));
       renameSync(src, dst);
     }
-    try { readdirSync(a).length || renameSync(a, join(trash, from.replace(/\//g, "_"))); } catch { /* keep */ }
+    try { if (!readdirSync(a).length) rmSync(a, { recursive: true }); } catch { /* keep */ }
   };
-  mkdirSync(trash, { recursive: true });
   for (const [from, to] of LEGACY) move(from, to);
-  // Generated guides / dashboard of the old layout → trash (new ones are created below; nothing the CEO wrote is touched)
-  for (const f of VAULT_FOLDERS) {
-    const dir = join(v.path, f.name);
-    if (!existsSync(dir)) continue;
-    for (const e of readdirSync(dir)) {
-      if (!/ — Hướng dẫn\.md$/.test(e) && !(f.name === F.overview && e === "Dashboard.md")) continue;
-      const text = readFileSync(join(dir, e), "utf8");
-      if (/^---\ntype: (guide|dashboard)\n---/.test(text)) renameSync(join(dir, e), join(trash, e));
+  // Old system guides (any folder) → trash; fresh ones are written by scaffold below. Nothing the CEO wrote is touched.
+  const sweep = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.name.startsWith(".")) continue;
+      const p = join(dir, e.name);
+      if (e.isDirectory()) { sweep(p); continue; }
+      if ((/ — Hướng dẫn\.md$/.test(e.name) || /^Giới thiệu .+\.md$/.test(e.name) || e.name === "Dashboard.md") && /^---\ntype: (guide|dashboard)\n/.test(readFileSync(p, "utf8"))) {
+        const top = relOf(v, dir).split("/")[0];
+        if (dir === join(v.path, top) && e.name === guideName(top)) continue; // already the current guide
+        renameSync(p, join(trash, `${relOf(v, dir).replace(/\//g, "_")}-${e.name}`));
+      }
     }
-  }
+  };
+  sweep(v.path);
+  const prune = (dir: string) => { // empty leftover folders of the old layout
+    for (const e of readdirSync(dir, { withFileTypes: true })) if (e.isDirectory() && !e.name.startsWith(".")) prune(join(dir, e.name));
+    const rel = relOf(v, dir);
+    const keep = VAULT_FOLDERS.some((f) => f.name === rel || (f.subs ?? []).some((s) => `${f.name}/${s}` === rel));
+    if (dir !== v.path && !keep && !readdirSync(dir).length) rmSync(dir, { recursive: true });
+  };
+  prune(v.path);
   scaffold(v.path);
   writeObsidianConfig(v.path);
   if (/^Bộ não\s/.test(v.name)) update("brain_vault", v.id, { name: v.name.replace(/^Bộ não\s/, "Agentic Brain · ") });
@@ -473,14 +503,17 @@ export function noteLinks(v: Row, rel: string) {
 
 /** Map regions ("vùng trí nhớ") shown on the graph — by note `type:` first, else by top folder. */
 const TYPE_CLUSTER: Record<string, string> = {
-  project: "Dự án", goal: "Dự án", content: "Marketing", video: "Marketing", report: "Marketing", ads: "Marketing",
-  conversation: "Hội thoại", wiki: "Quy trình", skill: "Quy trình", fact: "Tri thức", knowledge: "Tri thức", reference: "Tham khảo", agent: "Đội AI",
-  daily: "Nhật ký", weekly: "Nhật ký", monthly: "Nhật ký", reminder: "Kế hoạch", identity: "Thương hiệu", lesson: "Bài học", dashboard: "Tổng quan",
+  project: "Chiến dịch", goal: "Chiến dịch", content: "Nội dung", video: "Video", video_script: "Video", hook: "Video", report: "Quảng cáo", ads: "Quảng cáo", ads_decision: "Quảng cáo",
+  conversation: "Ý tưởng", wiki: "Quy trình", skill: "Quy trình", template: "Quy trình", fact: "Tri thức", knowledge: "Tri thức", agent: "Đội AI",
+  daily: "Nhật ký", weekly: "Nhật ký", monthly: "Nhật ký", reminder: "Kế hoạch", identity: "Thương hiệu", dashboard: "Tổng quan",
+  lesson: "Feedback loop", rejection: "Feedback loop", proposal: "Feedback loop", experiment: "Feedback loop", review: "Review", competitor: "Thị trường",
+  persona: "Thị trường", research: "Thị trường", lead: "Bán hàng", sales: "Bán hàng", metrics: "Số liệu", winner: "Mẫu thắng",
 };
 const FOLDER_CLUSTER: Record<string, string> = {
-  [F.overview]: "Tổng quan", [F.inbox]: "Hộp thư", [F.daily]: "Nhật ký", [F.weekly]: "Nhật ký", [F.monthly]: "Nhật ký", [F.plan]: "Kế hoạch",
-  [F.brand]: "Thương hiệu", [F.projects]: "Dự án", [F.marketing]: "Marketing", [F.knowledge]: "Tri thức", [F.data]: "Dữ liệu", [F.lessons]: "Bài học",
-  [F.ideas]: "Ý tưởng", [F.playbook]: "Quy trình", [F.team]: "Đội AI", [F.life]: "Đời sống", [F.archive]: "Lưu trữ", [F.files]: "Tệp",
+  [F.overview]: "Tổng quan", [F.inbox]: "Hộp thư", [F.logs]: "Nhật ký", [F.plan]: "Kế hoạch", [F.brand]: "Thương hiệu", [F.market]: "Thị trường",
+  [F.campaigns]: "Chiến dịch", [F.content]: "Nội dung", [F.video]: "Video", [F.ads]: "Quảng cáo", [F.sales]: "Bán hàng", [F.review]: "Review",
+  [F.feedback]: "Feedback loop", [F.metrics]: "Số liệu", [F.knowledge]: "Tri thức", [F.playbook]: "Quy trình", [F.team]: "Đội AI", [F.ideas]: "Ý tưởng",
+  [F.archive]: "Lưu trữ", [F.files]: "Tệp",
 };
 export function clusterOf(r: Row) {
   const t = String(r.meta?.type ?? "").toLowerCase();

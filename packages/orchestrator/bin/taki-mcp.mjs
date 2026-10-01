@@ -82,11 +82,11 @@ tool("nhat_ky", "Nhật ký hoạt động gần đây của hệ thống (ai l�
 tool("viec_da_giao", "Những việc Ngân Nguyệt đã giao cho các agent và trạng thái hiện tại.", {}, async () => get("/v1/assistant/dispatches"));
 
 // ---------------- Agentic Brain (trí nhớ công ty — ghi chú Markdown) ----------------
-const FOLDERS_HINT = "1. Tổng quan · 2. Hộp thư · 3. Nhật ký ngày · 4. Tổng kết tuần · 5. Tổng kết tháng · 6. Kế hoạch & nhắc việc · 7. Thương hiệu · 8. Dự án · 9. Cỗ máy marketing · 10. Tri thức (agent dùng trả lời khách) · 11. Dữ liệu · 12. Bài học · 13. Ý tưởng & hội thoại · 14. Sổ tay quy trình · 15. Đội AI · 16. Đời sống · 17. Lưu trữ · 18. Tệp & hình ảnh";
+const FOLDERS_HINT = "1. Tổng quan · 2. Hộp thư · 3. Nhật ký vận hành (Ngày/Tuần/Tháng) · 4. Mục tiêu & kế hoạch · 5. Thương hiệu & DNA · 6. Khách hàng & thị trường (Chân dung khách hàng/Đối thủ/Nghiên cứu) · 7. Chiến dịch · 8. Nội dung (Bài viết/SEO/Thư viện bài thắng) · 9. Video (Kịch bản/Video Flow/Kho hook/Thư viện video thắng) · 10. Quảng cáo (Báo cáo/Quyết định) · 11. Bán hàng & chăm sóc · 12. Review & kiểm duyệt · 13. Feedback loop (Bài học/Sếp từ chối/Đề xuất thay đổi/Thử nghiệm) · 14. Số liệu & báo cáo · 15. Tri thức (Chat Agent dùng trả lời khách) · 16. Sổ tay quy trình (Kỹ năng/Mẫu ghi chú) · 17. Đội AI · 18. Ý tưởng & hội thoại · 19. Lưu trữ · 20. Tệp & hình ảnh";
 tool("brain_tim", "Tìm trong Agentic Brain (ghi chú, nhật ký, dự án, quy trình, tri thức, hội thoại cũ). Tìm theo nội dung (mặc định) hoặc theo tiêu đề. Không dấu cũng tìm được.", {
   cau_hoi: z.string().min(1), theo: z.enum(["noi_dung", "ten"]).optional(),
 }, async ({ cau_hoi, theo }) => get(`/v1/brain/active/search?q=${encodeURIComponent(cau_hoi)}&mode=${theo === "ten" ? "name" : "content"}&limit=20`));
-tool("brain_doc", "Đọc toàn văn 1 ghi chú trong Agentic Brain (đường dẫn dạng '3. Nhật ký ngày/2026-10-01.md'), kèm liên kết & ghi chú nhắc tới nó.", { path: z.string().min(4) }, async ({ path }) => {
+tool("brain_doc", "Đọc toàn văn 1 ghi chú trong Agentic Brain (đường dẫn dạng '3. Nhật ký vận hành/Ngày/2026-10-01.md'), kèm liên kết & ghi chú nhắc tới nó.", { path: z.string().min(4) }, async ({ path }) => {
   const n = await get(`/v1/brain/active/note?path=${encodeURIComponent(path)}`);
   return { path: n.path, title: n.title, tags: n.tags, content: n.content, links: n.links, backlinks: n.backlinks };
 });
@@ -100,7 +100,7 @@ tool("brain_nhat_ky", "Nhật ký 1 ngày trong Agentic Brain (mặc định hô
   return (await get(`/v1/brain/active/note?path=${encodeURIComponent(path)}`)).content;
 });
 tool("brain_gan_day", "Các ghi chú vừa tạo/sửa gần đây trong Agentic Brain.", {}, async () => get("/v1/brain/active/recent?limit=25"));
-tool("tao_nhac_viec", "Tạo nhắc việc cho Sếp (lưu ở \"6. Kế hoạch & nhắc việc\" trong Agentic Brain, đến giờ hệ thống báo trên máy + trong app). Thời gian theo giờ Việt Nam, dạng 'YYYY-MM-DD HH:mm'.", {
+tool("tao_nhac_viec", "Tạo nhắc việc cho Sếp (lưu ở \"4. Mục tiêu & kế hoạch/Nhắc việc\" trong Agentic Brain, đến giờ hệ thống báo trên máy + trong app). Thời gian theo giờ Việt Nam, dạng 'YYYY-MM-DD HH:mm'.", {
   tieu_de: z.string().min(2).max(160), thoi_gian: z.string().min(10), ghi_chu: z.string().optional(),
 }, async (a) => call("POST", "/v1/brain/reminders", { title: a.tieu_de, due: a.thoi_gian, note: a.ghi_chu }));
 tool("ds_nhac_viec", "Danh sách nhắc việc sắp tới (chưa xong).", {}, async () => get("/v1/brain/reminders"));

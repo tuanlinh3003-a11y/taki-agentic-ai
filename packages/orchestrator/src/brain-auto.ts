@@ -4,7 +4,7 @@ import { effectiveProvider, generate } from "@dotaka/llm-gateway";
 import { logger, nowIso } from "@dotaka/shared";
 import { z } from "zod";
 import {
-  DASHBOARD_NOTE, F, activeVault, createVault, freePath, noteExists, parseFrontmatter, readNoteFile, safeName, scanVault, stringifyFrontmatter, upsertAutoBlock, writeNoteFile,
+  DASHBOARD_NOTE, F, activeVault, appendToNote, renameNote, createVault, freePath, noteExists, parseFrontmatter, readNoteFile, safeName, scanVault, stringifyFrontmatter, upsertAutoBlock, writeNoteFile,
 } from "./brain.ts";
 import { notifyDesktop } from "./creative.ts";
 
@@ -51,10 +51,14 @@ export function toMd(v: unknown, depth = 0): string {
 function vaultFor(bizId: string): Row | null {
   try { return activeVault(bizId); } catch { return null; }
 }
-/** Note created once (by an id in its frontmatter), later only its auto block is refreshed. */
+/** Note created once (by an id in its frontmatter), later only its auto block is refreshed. A system note found outside
+ *  its folder (written under an older layout / rule) is moved there first — [[links]] to it keep working. */
 function upsertById(v: Row, idKey: string, id: string, folder: string, title: string, meta: Row, block: string) {
   const found = q.get<Row>(`SELECT path FROM brain_note WHERE vault_id = ? AND json_extract(meta, '$.${idKey}') = ?`, v.id, id);
-  const rel = found?.path ?? freePath(v, folder, title);
+  let rel = found?.path ?? freePath(v, folder, title);
+  if (found && !found.path.startsWith(`${folder}/`)) {
+    try { rel = renameNote(v, found.path, freePath(v, folder, found.path.split("/").pop()!.replace(/\.md$/, "")), "system").path; } catch (e) { logger.warn("brain.relocate_failed", { path: found.path, error: String(e) }); }
+  }
   return upsertAutoBlock(v, rel, block, () => `${stringifyFrontmatter({ ...meta, [idKey]: id })}# ${title}\n`);
 }
 
@@ -129,7 +133,7 @@ function syncAgents(v: Row) {
 function syncLessons(v: Row) {
   for (const l of q.all<Row>("SELECT * FROM lesson WHERE biz_id = ?", v.biz_id)) {
     if (q.get("SELECT 1 FROM brain_note WHERE vault_id = ? AND json_extract(meta, '$.lesson_id') = ?", v.id, l.id)) continue;
-    upsertById(v, "lesson_id", l.id, `${F.lessons}/Từ kết quả`, String(l.statement).slice(0, 80), { type: "lesson", agent: l.agent_key ?? undefined, status: l.status }, [
+    upsertById(v, "lesson_id", l.id, `${F.feedback}/Bài học`, String(l.statement).slice(0, 80), { type: "lesson", agent: l.agent_key ?? undefined, status: l.status }, [
       `**Bài học:** ${l.statement}`, l.applies_when ? `**Áp dụng khi:** ${JSON.stringify(l.applies_when)}` : "", `**Bằng chứng:** ${typeof l.evidence === "string" ? l.evidence : JSON.stringify(l.evidence)}`,
       l.agent_key ? `**Agent:** ${agentLink(l.agent_key)}` : "", `Rút ra ngày [[${vnDate(new Date(l.created_at))}]]`,
     ].filter(Boolean).join("\n"));
@@ -139,10 +143,210 @@ function syncLessons(v: Row) {
 function syncFeedback(v: Row) {
   const rows = q.all<Row>("SELECT m.text, m.feedback, m.feedback_note, m.updated_at, t.title FROM assistant_message m JOIN assistant_thread t ON t.id = m.thread_id WHERE m.biz_id = ? AND m.feedback IS NOT NULL ORDER BY m.updated_at DESC LIMIT 200", v.biz_id);
   if (!rows.length) return;
-  upsertAutoBlock(v, `${F.lessons}/Phản hồi cho Ngân Nguyệt.md`, [
+  upsertAutoBlock(v, `${F.feedback}/Phản hồi cho Ngân Nguyệt.md`, [
     `Sếp chấm ${rows.length} câu trả lời của [[Ngân Nguyệt]] · 👍 ${rows.filter((r) => r.feedback === "up").length} · 👎 ${rows.filter((r) => r.feedback === "down").length}. Góp ý có ghi chú được Ngân Nguyệt áp dụng ngay từ tin nhắn sau.`, "",
     ...rows.map((r) => `- ${r.feedback === "up" ? "👍" : "👎"} ${viDate(vnDate(new Date(r.updated_at)))} · _${r.title}_${r.feedback_note ? ` — **${r.feedback_note}**` : ""}\n  > ${String(r.text).replace(/\s+/g, " ").slice(0, 160)}…`),
   ].join("\n"), () => `${stringifyFrontmatter({ type: "lesson", agent: "assistant" })}# Phản hồi cho Ngân Nguyệt\n`);
+}
+
+// ---------------- Khách hàng & thị trường ----------------
+function syncMarket(v: Row) {
+  const d = activeDna(v.biz_id)?.data as any;
+  if (!d) return;
+  for (const a of (d.audience ?? []) as Row[]) {
+    const name = String(a.name ?? "Khách hàng").split(/[(/]/)[0].trim();
+    upsertById(v, "persona", String(a.name), `${F.market}/Chân dung khách hàng`, name, { type: "persona" }, [
+      `**Phân khúc:** ${a.name}`, "", "## Nỗi đau", ...(a.pains ?? []).map((x: string) => `- ${x}`), "", "## Mong muốn", ...(a.goals ?? []).map((x: string) => `- ${x}`),
+      "", `Nguồn: [[DNA thương hiệu]] · Sản phẩm phù hợp: ${(d.products ?? []).slice(0, 4).map((p: Row) => `[[${safeName(p.name)}]]`).join(", ")}`,
+    ].join("\n"));
+  }
+  for (const c of (d.goals?.competitors ?? []) as string[]) {
+    upsertById(v, "competitor", c, `${F.market}/Đối thủ`, c, { type: "competitor" }, [
+      `Đối thủ được ghi trong [[DNA thương hiệu]]. Research Agent và Ngân Nguyệt bổ sung các mục bên dưới khi nghiên cứu.`,
+    ].join("\n"));
+    const rel = q.get<Row>("SELECT path FROM brain_note WHERE vault_id = ? AND json_extract(meta, '$.competitor') = ?", v.id, c)?.path;
+    if (rel && !readNoteFile(v, rel).includes("## Điểm mạnh")) {
+      appendToNote(v, rel, ["## Sản phẩm & giá", "", "## Kênh & cách làm nội dung", "", "## Điểm mạnh", "", "## Điểm yếu", "", "## Cơ hội cho chúng ta", "", "## Nguồn tham khảo", ""].join("\n"));
+    }
+  }
+}
+
+// ---------------- Review & kiểm duyệt ----------------
+function syncReview(v: Row) {
+  const since = new Date(Date.now() - 30 * 86400_000).toISOString();
+  const rows = q.all<Row>("SELECT id, subject_type, subject_id, rubric_key, total, verdict, result, created_at FROM review_score WHERE biz_id = ? AND created_at > ? ORDER BY created_at DESC", v.biz_id, since);
+  const fails = new Map<string, number>(), weak = new Map<string, number>(), verdicts = new Map<string, number>(), byRubric = new Map<string, number[]>();
+  for (const r of rows) {
+    verdicts.set(r.verdict, (verdicts.get(r.verdict) ?? 0) + 1);
+    byRubric.set(r.rubric_key, [...(byRubric.get(r.rubric_key) ?? []), Number(r.total)]);
+    for (const c of (r.result?.deterministic ?? []) as Row[]) if (!c.passed) fails.set(c.check, (fails.get(c.check) ?? 0) + 1);
+    for (const c of (r.result?.criteria ?? []) as Row[]) if (Number(c.score) < 0.6) weak.set(c.label, (weak.get(c.label) ?? 0) + 1);
+  }
+  const top = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
+  upsertAutoBlock(v, `${F.review}/Lỗi hay gặp.md`, [
+    `30 ngày qua: **${rows.length}** lượt Review Agent chấm · ${[...verdicts.entries()].map(([k, n]) => `${k} ${n}`).join(" · ") || "chưa có"}`, "",
+    "## Kiểm tra bắt buộc bị trượt", top(fails).length ? top(fails).map(([k, n]) => `- ${k} — **${n}** lần`).join("\n") : "- Không có",
+    "", "## Tiêu chí điểm thấp (< 60%)", top(weak).length ? top(weak).map(([k, n]) => `- ${k} — **${n}** lần`).join("\n") : "- Không có",
+    "", "## Điểm trung bình theo bộ tiêu chí", [...byRubric.entries()].map(([k, a]) => `- ${k}: **${(a.reduce((x, y) => x + y, 0) / a.length).toFixed(1)}** (${a.length} lượt)`).join("\n") || "- Chưa có",
+    "", "Các lỗi lặp lại được [[Feedback loop — Bài học đang áp dụng|Feedback loop]] chuyển thành bài học cho agent.",
+  ].join("\n"), () => `${stringifyFrontmatter({ type: "review" })}# Lỗi hay gặp\n`);
+  const latest = new Map<string, Row>();
+  for (const r of rows) if (!latest.has(r.rubric_key)) latest.set(r.rubric_key, r);
+  upsertAutoBlock(v, `${F.review}/Bộ tiêu chí chấm.md`, [...latest.entries()].map(([k, r]) => [
+    `## ${k} (phiên bản ${r.result?.rubricVersion ?? "?"})`, "**Kiểm tra bắt buộc:**", ...((r.result?.deterministic ?? []) as Row[]).map((c) => `- ${c.check} _(${c.severity})_`),
+    "**Tiêu chí chấm:**", ...((r.result?.criteria ?? []) as Row[]).map((c) => `- ${c.label}`),
+  ].join("\n")).join("\n\n") || "Chưa có lượt chấm nào.", () => `${stringifyFrontmatter({ type: "review" })}# Bộ tiêu chí chấm\n`);
+  for (const r of q.all<Row>("SELECT * FROM review_score WHERE biz_id = ? AND verdict = 'block' ORDER BY created_at DESC LIMIT 50", v.biz_id)) {
+    const ci = r.subject_type === "content_item" ? byId<Row>("content_item", r.subject_id) : null;
+    const title = ci?.title ?? `${r.subject_type} ${String(r.subject_id).slice(-6)}`;
+    const date = vnDate(new Date(r.created_at));
+    const failed = [...((r.result?.deterministic ?? []) as Row[]).filter((c) => !c.passed).map((c) => `${c.check}${c.detail ? ` (${c.detail})` : ""}`), ...((r.result?.fatalFindings ?? []) as string[])];
+    upsertById(v, "review_id", r.id, `${F.review}/Bị chặn`, `${date} ${title}`, { type: "review", date, agent: ci?.agent_key ?? undefined }, [
+      `**Điểm:** ${Number(r.total).toFixed(1)} · **Kết luận:** chặn · **Bộ tiêu chí:** ${r.rubric_key} · [[${date}]]${ci?.agent_key ? ` · ${agentLink(ci.agent_key)}` : ""}`,
+      "", "## Lý do bị chặn", failed.length ? failed.map((f) => `- ${f}`).join("\n") : "- (không ghi lý do)", ci?.body ? `\n## Nội dung bị chặn\n${String(ci.body).slice(0, 3000)}` : "",
+    ].join("\n"));
+  }
+}
+
+// ---------------- Feedback loop ----------------
+function syncFeedbackLoop(v: Row) {
+  const months = new Map<string, Row[]>();
+  for (const a of q.all<Row>("SELECT title, subject_type, agent_key, status, decision_note, decided_by, decided_at FROM approval WHERE biz_id = ? AND decided_at IS NOT NULL AND (status = 'rejected' OR (decision_note IS NOT NULL AND decision_note != '')) ORDER BY decided_at DESC LIMIT 500", v.biz_id)) {
+    const m = vnDate(new Date(a.decided_at)).slice(0, 7);
+    months.set(m, [...(months.get(m) ?? []), a]);
+  }
+  for (const [m, list] of months) {
+    upsertAutoBlock(v, `${F.feedback}/Sếp từ chối/${m}.md`, [
+      `Tháng ${m.split("-").reverse().join("/")}: **${list.filter((a) => a.status === "rejected").length}** mục bị từ chối · ${list.filter((a) => a.status !== "rejected").length} mục duyệt kèm góp ý.`, "",
+      ...list.map((a) => `- ${a.status === "rejected" ? "❌" : "✏️"} **${a.title}**${a.agent_key ? ` — ${agentLink(a.agent_key)}` : ""} · ${viDate(vnDate(new Date(a.decided_at)))}${a.decision_note ? `\n  > ${a.decision_note}` : ""}`),
+      "", "Agent đọc các lý do này (qua bài học) để không lặp lại.",
+    ].join("\n"), () => `${stringifyFrontmatter({ type: "rejection", month: m })}# Sếp từ chối / góp ý — ${m}\n`);
+  }
+  for (const c of q.all<Row>("SELECT * FROM change_proposal WHERE biz_id = ? ORDER BY created_at DESC LIMIT 100", v.biz_id)) {
+    upsertById(v, "proposal_id", c.id, `${F.feedback}/Đề xuất thay đổi`, String(c.title).slice(0, 90), { type: "proposal", status: c.status }, [
+      `**Trạng thái:** ${c.status} · **Rủi ro:** ${c.risk ?? "—"} · **Áp dụng cho:** ${c.target_type}`, "", `## Vì sao\n${c.rationale}`, "", `## Thay đổi đề xuất\n${toMd(c.diff)}`,
+    ].join("\n"));
+  }
+  const lessons = q.all<Row>("SELECT agent_key, statement, review_at, created_at FROM lesson WHERE biz_id = ? AND status = 'active' ORDER BY agent_key", v.biz_id);
+  const by = new Map<string, Row[]>();
+  for (const l of lessons) by.set(l.agent_key ?? "chung", [...(by.get(l.agent_key ?? "chung") ?? []), l]);
+  upsertAutoBlock(v, `${F.feedback}/Feedback loop — Bài học đang áp dụng.md`, [
+    "Vòng phản hồi: **Sếp từ chối / Review chấm thấp / số liệu kém → bài học → agent đọc trước khi làm lần sau → đo lại kết quả.**", "",
+    `**${lessons.length}** bài học đang hiệu lực:`, "",
+    ...[...by.entries()].map(([k, ls]) => `## ${k === "chung" ? "Chung" : agentLink(k)}\n${ls.map((l) => `- ${l.statement}${l.review_at ? ` _(xem lại ${viDate(String(l.review_at).slice(0, 10))})_` : ""}`).join("\n")}`),
+    "", "Liên quan: [[Lỗi hay gặp]] · [[Phản hồi cho Ngân Nguyệt]] · thư mục Sếp từ chối, Đề xuất thay đổi, Thử nghiệm.",
+  ].join("\n"), () => `${stringifyFrontmatter({ type: "lesson" })}# Feedback loop — Bài học đang áp dụng\n`);
+}
+
+// ---------------- Mẫu thắng, kho hook ----------------
+function syncWinners(v: Row) {
+  for (const e of q.all<Row>("SELECT * FROM exemplar WHERE biz_id = ? AND kind = 'winner' ORDER BY created_at DESC LIMIT 200", v.biz_id)) {
+    const isVideo = ["video_script", "creative"].includes(e.agent_key);
+    const firstLine = String(e.text).split("\n").find((x) => x.trim())?.replace(/[#*>]/g, "").trim().slice(0, 70) ?? "Mẫu thắng";
+    upsertById(v, "exemplar_id", e.id, isVideo ? `${F.video}/Thư viện video thắng` : `${F.content}/Thư viện bài thắng`, firstLine, { type: "winner", agent: e.agent_key }, [
+      `**Kết quả:** ${typeof e.outcome === "string" ? e.outcome : JSON.stringify(e.outcome)} · ${agentLink(e.agent_key)} dùng làm ví dụ mẫu khi viết bài mới.`, "", String(e.text),
+    ].join("\n"));
+  }
+  const hooks: string[] = [];
+  for (const t of q.all<Row>("SELECT id, agent_key, title, output, updated_at FROM task WHERE biz_id = ? AND status = 'done' AND agent_key IN ('video_script','content') ORDER BY updated_at DESC LIMIT 80", v.biz_id)) {
+    const o = t.output ?? {};
+    const hs = [...(o.hooks ?? []), ...((o.variants ?? []) as Row[]).map((x) => x.hook)].filter(Boolean).slice(0, 4);
+    const src = q.get<Row>("SELECT path FROM brain_note WHERE vault_id = ? AND json_extract(meta, '$.task_id') = ?", v.id, t.id)?.path;
+    for (const h of hs) hooks.push(`- ${String(h).replace(/\n/g, " ")} — ${agentLink(t.agent_key)}${src ? ` · [[${src.replace(/\.md$/, "")}|nguồn]]` : ""}`);
+  }
+  if (hooks.length) upsertAutoBlock(v, `${F.video}/Kho hook/Kho hook.md`, [`${hooks.length} câu hook từ các bài/kịch bản đã làm (mới nhất trước). Thêm hook hay của Sếp ở trên phần tự động.`, "", ...hooks].join("\n"),
+    () => `${stringifyFrontmatter({ type: "hook" })}# Kho hook\n\n## Hook Sếp sưu tầm\n\n`);
+}
+
+// ---------------- Quảng cáo: quyết định ----------------
+function syncAdsDecisions(v: Row) {
+  const days = new Map<string, Row[]>();
+  for (const a of q.all<Row>("SELECT a.*, ad.name ad_name FROM action a LEFT JOIN ad ON ad.id = a.target_id WHERE a.biz_id = ? AND a.created_at > ? ORDER BY a.created_at", v.biz_id, new Date(Date.now() - 90 * 86400_000).toISOString())) {
+    const d = vnDate(new Date(a.created_at));
+    days.set(d, [...(days.get(d) ?? []), a]);
+  }
+  const label: Record<string, string> = { pause_ad: "Tạm dừng", resume_ad: "Chạy lại", update_budget: "Đổi ngân sách", create_ad: "Tạo quảng cáo" };
+  for (const [d, list] of days) {
+    upsertAutoBlock(v, `${F.ads}/Quyết định/${d}.md`, [
+      `[[${d}]] · ${list.length} quyết định quảng cáo`, "",
+      ...list.map((a) => `- **${label[a.type] ?? a.type}** ${a.ad_name ?? a.target_id}${a.params?.amount ? ` → ${vnd(a.params.amount)}` : ""} · ${a.status} · bởi ${a.actor}${a.reason ? `\n  > ${a.reason}` : ""}`),
+    ].join("\n"), () => `${stringifyFrontmatter({ type: "ads_decision", date: d })}# Quyết định quảng cáo ${viDate(d)}\n`);
+  }
+}
+
+// ---------------- Bán hàng & chăm sóc ----------------
+function syncSales(v: Row) {
+  const hot = q.all<Row>("SELECT l.name, l.grade, l.score, l.product_interest, c.id cid, c.channel, c.state, c.last_message_at, c.last_preview FROM lead l JOIN conversation c ON c.id = l.conversation_id WHERE l.biz_id = ? AND l.grade IN ('hot','warm') ORDER BY l.score DESC LIMIT 40", v.biz_id);
+  const waiting = q.all<Row>("SELECT id, customer_name, channel, last_preview, last_message_at FROM conversation WHERE biz_id = ? AND state = 'handoff_pending' ORDER BY last_message_at DESC LIMIT 20", v.biz_id);
+  upsertAutoBlock(v, `${F.sales}/Lead nóng.md`, [
+    `## Đang chờ người trả lời (${waiting.length})`, waiting.length ? waiting.map((c) => `- **${c.customer_name}** (${c.channel}) — “${String(c.last_preview ?? "").slice(0, 100)}” · [mở](http://localhost:5173/chat?id=${c.id})`).join("\n") : "- Không có",
+    "", `## Lead nóng & ấm (${hot.length})`, hot.length ? hot.map((l) => `- **${l.name}** · ${l.grade} ${Math.round(Number(l.score))} điểm · quan tâm: ${l.product_interest ?? "—"} · ${l.channel} · ${l.state}`).join("\n") : "- Chưa có lead nóng",
+  ].join("\n"), () => `${stringifyFrontmatter({ type: "lead" })}# Lead nóng\n`);
+  const plans = q.all<Row>("SELECT status, COUNT(*) n FROM follow_up_plan WHERE biz_id = ? GROUP BY status", v.biz_id);
+  const next = q.all<Row>("SELECT f.next_at, f.step, f.template, c.customer_name, c.channel FROM follow_up_plan f JOIN conversation c ON c.id = f.conversation_id WHERE f.biz_id = ? AND f.status IN ('active','scheduled','pending') AND f.next_at IS NOT NULL ORDER BY f.next_at LIMIT 20", v.biz_id);
+  upsertAutoBlock(v, `${F.sales}/Follow-up Zalo.md`, [
+    `**Kế hoạch follow-up:** ${plans.map((p) => `${p.status} ${p.n}`).join(" · ") || "chưa có"} · do [[Follow-up Agent]] soạn, gửi qua ZL-CRM (cần Sếp duyệt theo cài đặt).`, "",
+    "## Sắp tới", next.length ? next.map((f) => `- ${viDate(vnDate(new Date(f.next_at)))} ${new Date(f.next_at).toLocaleTimeString("vi-VN", { timeZone: TZ, hour: "2-digit", minute: "2-digit" })} · **${f.customer_name}** (${f.channel}) · bước ${f.step} · ${f.template}`).join("\n") : "- Không có",
+  ].join("\n"), () => `${stringifyFrontmatter({ type: "sales" })}# Follow-up Zalo\n`);
+}
+
+// ---------------- Số liệu & mục tiêu ----------------
+function syncMetrics(v: Row) {
+  const today = vnDate();
+  const sum = (n: number) => {
+    const days = Array.from({ length: n }, (_, i) => dayStats(v.biz_id, addDays(today, -i)));
+    const t = (f: (x: ReturnType<typeof dayStats>) => number) => days.reduce((a, x) => a + f(x), 0);
+    return {
+      spend: t((x) => x.spend), results: t((x) => x.results), clicks: t((x) => x.clicks), convs: t((x) => x.convs),
+      leads: t((x) => x.leads.reduce((a, l) => a + Number(l.n), 0)), hot: t((x) => x.leads.filter((l) => l.grade === "hot").reduce((a, l) => a + Number(l.n), 0)),
+      orders: t((x) => Number(x.orders?.n ?? 0)), revenue: t((x) => Number(x.orders?.s ?? 0)), content: t((x) => x.content.reduce((a, c) => a + Number(c.n), 0)),
+      done: t((x) => x.tasks.filter((k) => k.status === "done").reduce((a, k) => a + Number(k.n), 0)),
+    };
+  };
+  const w = sum(7), m = sum(30);
+  const row = (l: string, a: string | number, b: string | number) => `| ${l} | ${a} | ${b} |`;
+  upsertAutoBlock(v, `${F.metrics}/Chỉ số KPI.md`, [
+    "| Chỉ số | 7 ngày | 30 ngày |", "|---|---|---|",
+    row("Nội dung agent tạo", w.content, m.content), row("Tác vụ agent hoàn thành", w.done, m.done),
+    row("Chi tiêu quảng cáo", vnd(w.spend), vnd(m.spend)), row("Kết quả quảng cáo", w.results, m.results),
+    row("CPA", w.results ? vnd(w.spend / w.results) : "—", m.results ? vnd(m.spend / m.results) : "—"),
+    row("Hội thoại mới", w.convs, m.convs), row("Lead (nóng)", `${w.leads} (${w.hot})`, `${m.leads} (${m.hot})`),
+    row("Đơn hàng", w.orders, m.orders), row("Doanh thu", vnd(w.revenue), vnd(m.revenue)),
+    "", `Phễu 30 ngày: **${m.content}** nội dung → **${m.results}** kết quả ads → **${m.convs}** hội thoại → **${m.leads}** lead → **${m.orders}** đơn.`,
+    "", `Chi tiết từng ngày: [[${today}]] · tuần [[${isoWeek(today)}]] · tháng [[${today.slice(0, 7)}]]`,
+  ].join("\n"), () => `${stringifyFrontmatter({ type: "metrics" })}# Chỉ số KPI\n`);
+}
+function goalProgress(bizId: string) {
+  const d = activeDna(bizId)?.data as any;
+  const target = Number(d?.goals?.yearTarget ?? 0);
+  const year = vnDate().slice(0, 4);
+  const revenue = q.scalar<number>("SELECT COALESCE(SUM(total),0) FROM orders WHERE biz_id = ? AND created_at >= ?", bizId, new Date(`${year}-01-01T00:00:00+07:00`).toISOString()) ?? 0;
+  if (!target) return "## Tiến độ mục tiêu năm\n- Chưa đặt mục tiêu doanh thu năm trong DNA (Mục tiêu & DNA).";
+  const month = Number(vnDate().slice(5, 7));
+  const left = Math.max(0, target - revenue);
+  return [
+    `## Tiến độ mục tiêu năm ${year}`,
+    `- Mục tiêu: **${vnd(target)}** · Đã đạt (đơn ghi nhận trong hệ thống): **${vnd(revenue)}** (${((revenue / target) * 100).toFixed(1)}%)`,
+    `- Còn lại: **${vnd(left)}** trong ${13 - month} tháng → cần trung bình **${vnd(left / Math.max(1, 13 - month))}/tháng**`,
+    d?.goals?.painPoint ? `- Nỗi đau ưu tiên giải: _${d.goals.painPoint}_` : "",
+  ].filter(Boolean).join("\n");
+}
+
+// ---------------- Mẫu ghi chú ----------------
+const TEMPLATES: [string, string][] = [
+  ["Brief chiến dịch", "## Mục tiêu (số đo được)\n\n## Khách hàng mục tiêu\n[[Chân dung khách hàng]]\n\n## Sản phẩm / ưu đãi\n\n## Thông điệp chính\n\n## Kênh & ngân sách\n\n## KPI & hạn\n\n## Rủi ro / claim cần tránh\n"],
+  ["Kịch bản video", "## Hook (0-3 giây)\n\n## Vấn đề của khách\n\n## Giải pháp / demo\n\n## Bằng chứng\n\n## Kêu gọi hành động\n\n## Ghi chú quay / Flow\n- Công cụ: \n- Thời lượng: \n- Ảnh tham chiếu: \n"],
+  ["Phân tích đối thủ", "## Đối thủ\n\n## Sản phẩm & giá\n\n## Kênh & cách làm nội dung\n\n## Điểm mạnh\n\n## Điểm yếu\n\n## Cơ hội cho chúng ta\n\n## Nguồn tham khảo\n"],
+  ["Chân dung khách hàng", "## Họ là ai\n\n## Nỗi đau\n\n## Mong muốn\n\n## Phản đối thường gặp\n\n## Kênh họ dùng\n\n## Câu nói đắt giá của khách\n"],
+  ["Thử nghiệm A-B", "## Giả thuyết\n\n## Biến thể A\n\n## Biến thể B\n\n## Chỉ số đo & ngưỡng thắng\n\n## Kết quả\n\n## Bài học rút ra\n→ ghi vào [[Feedback loop — Bài học đang áp dụng]]\n"],
+  ["Kịch bản chốt sale", "## Tình huống khách\n\n## Câu mở\n\n## Câu hỏi khai thác\n\n## Xử lý từ chối\n\n## Câu chốt\n\n## Follow-up nếu chưa chốt\n"],
+  ["Biên bản họp", "## Thành phần\n\n## Nội dung chính\n\n## Quyết định\n\n## Việc cần làm (ai · hạn)\n- [ ] \n"],
+];
+function syncTemplates(v: Row) {
+  for (const [name, body] of TEMPLATES) {
+    const rel = `${F.playbook}/Mẫu ghi chú/Mẫu - ${name}.md`;
+    if (!noteExists(v, rel)) writeNoteFile(v, rel, `${stringifyFrontmatter({ type: "template" })}# ${name}\n\n${body}`);
+  }
 }
 
 // ---------------- Work archive (event hooks) ----------------
@@ -158,16 +362,17 @@ export function archiveTask(taskId: string) {
   const meta = { type: "content", agent: t.agent_key, date, status: ci?.status ?? t.status, channel: ci?.channel ?? undefined };
   const links = `${agentLink(t.agent_key)} · [[${date}]]${goal ? ` · [[${safeName(goal.title)}]]` : ""}`;
   if (["content", "video_script", "seo_web"].includes(t.agent_key)) {
-    upsertById(v, "task_id", t.id, `${F.marketing}/Nội dung`, `${date} ${t.title}`, meta, [
+    const folder = t.agent_key === "video_script" ? `${F.video}/Kịch bản` : t.agent_key === "seo_web" ? `${F.content}/SEO` : `${F.content}/Bài viết`;
+    upsertById(v, "task_id", t.id, folder, `${date} ${t.title}`, { ...meta, type: t.agent_key === "video_script" ? "video_script" : "content" }, [
       links, review ? `**Điểm review:** ${review.total} (${review.verdict})` : null, `**Kênh:** ${ci?.channel ?? "—"} · **Trạng thái:** ${ci?.status ?? t.status}`, "",
       ci?.body ?? toMd(t.output),
     ].filter((x) => x != null).join("\n"));
   } else if (t.agent_key === "ads") {
-    upsertById(v, "task_id", t.id, `${F.marketing}/Quảng cáo`, `${date} ${t.title}`, { ...meta, type: "report" }, `${links}\n\n${toMd(t.output)}`);
+    upsertById(v, "task_id", t.id, `${F.ads}/Báo cáo`, `${date} ${t.title}`, { ...meta, type: "report" }, `${links}\n\n${toMd(t.output)}`);
   } else if (goal) {
-    upsertById(v, "task_id", t.id, `${F.projects}/${safeName(goal.title)}`, `${agentLabel(t.agent_key)} — ${goal.title}`, { ...meta, type: "project" }, `${links}\n\n${toMd(t.output)}`);
+    upsertById(v, "task_id", t.id, `${F.campaigns}/${safeName(goal.title)}`, `${agentLabel(t.agent_key)} — ${goal.title}`, { ...meta, type: "project" }, `${links}\n\n${toMd(t.output)}`);
   } else {
-    upsertById(v, "task_id", t.id, `${F.projects}/Việc lẻ`, `${date} ${t.title}`, { ...meta, type: "project" }, `${links}\n\n${toMd(t.output)}`);
+    upsertById(v, "task_id", t.id, `${F.campaigns}/Việc lẻ`, `${date} ${t.title}`, { ...meta, type: "project" }, `${links}\n\n${toMd(t.output)}`);
   }
   if (goal) syncGoal(v, goal.id);
 }
@@ -176,20 +381,20 @@ function syncGoal(v: Row, goalId: string) {
   if (!g) return;
   const tasks = q.all<Row>("SELECT id, agent_key, title, status FROM task WHERE goal_id = ? ORDER BY created_at", g.id);
   const notes = new Map(q.all<Row>("SELECT path, json_extract(meta, '$.task_id') tid FROM brain_note WHERE vault_id = ? AND json_extract(meta, '$.task_id') IS NOT NULL", v.id).map((r) => [r.tid, r.path]));
-  upsertById(v, "goal_id", g.id, `${F.projects}/${safeName(g.title)}`, g.title, { type: "project", status: g.status }, [
+  upsertById(v, "goal_id", g.id, `${F.campaigns}/${safeName(g.title)}`, g.title, { type: "project", status: g.status }, [
     `**Mục tiêu:** ${g.description}`, `**Loại:** ${g.template} · **Ngân sách ads:** ${vnd(g.budget_ads ?? 0)} · **Hạn:** ${g.due_date ?? "—"} · **Trạng thái:** ${g.status}`, "",
     "## Tác vụ", ...tasks.map((t) => `- [${t.status === "done" ? "x" : " "}] ${notes.get(t.id) ? `[[${notes.get(t.id).replace(/\.md$/, "")}|${t.title}]]` : t.title} — ${agentLink(t.agent_key)} · ${t.status}`),
   ].join("\n"));
 }
 export function archiveVideo(jobId: string) {
   const j = byId<Row>("creative_job", jobId);
-  if (!j || j.status !== "done") return;
+  if (!j || !["done", "approved", "drafted"].includes(j.status)) return; // finished videos, also after approval / draft upload
   const v = vaultFor(j.biz_id);
   if (!v) return;
   const date = vnDate(new Date(j.ended_at ?? j.updated_at));
   const a = j.asset_id ? byId<Row>("creative_asset", j.asset_id) : null;
   const r = (j.result ?? {}) as Row;
-  upsertById(v, "creative_job", j.id, `${F.marketing}/Video`, `${date} ${j.title}`, { type: "video", agent: "creative", date, tool: j.tool }, [
+  upsertById(v, "creative_job", j.id, `${F.video}/Video Flow`, `${date} ${j.title}`, { type: "video", agent: "creative", date, tool: j.tool }, [
     `${agentLink("creative")} · [[${date}]] · công cụ Flow: ${j.tool}`,
     a ? `**File:** \`${a.path}\` · ${Number(a.duration ?? 0).toFixed(1)}s · ${a.width}x${a.height}` : "", "",
     r.caption ? `## Caption\n${r.caption}` : "",
@@ -329,7 +534,8 @@ function updateDashboard(v: Row) {
   const reminders = upcomingReminders(v, 6);
   const notes = q.scalar<number>("SELECT COUNT(*) FROM brain_note WHERE vault_id = ?", v.id) ?? 0;
   upsertAutoBlock(v, DASHBOARD_NOTE, [
-    `**Hôm nay:** [[${today}]] · **Tuần này:** [[${isoWeek(today)}]] · **Tháng:** [[${today.slice(0, 7)}]] · ${notes} ghi chú trong Agentic Brain`, "",
+    `**Hôm nay:** [[${today}]] · **Tuần này:** [[${isoWeek(today)}]] · **Tháng:** [[${today.slice(0, 7)}]] · [[Chỉ số KPI]] · [[Lead nóng]] · [[Lỗi hay gặp]] · [[Feedback loop — Bài học đang áp dụng|Feedback loop]] · ${notes} ghi chú`, "",
+    goalProgress(v.biz_id), "",
     `## Chờ Sếp duyệt (${pending.length})`, pending.length ? pending.map((p) => `- ${p.title}`).join("\n") : "- Không có", "",
     `## Agent đang làm (${running.length})`, running.length ? running.map((t) => `- ${agentLink(t.agent_key)}: ${t.title}${t.step ? ` — _${t.step}_` : ""}`).join("\n") : "- Không có", "",
     bad.length ? `## Cần xử lý\n${bad.map((t) => `- ${agentLink(t.agent_key)}: ${t.title} (${t.status})`).join("\n")}\n` : "",
@@ -347,7 +553,7 @@ export function createReminder(bizId: string, p: { title: string; due: string; n
   const due = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(raw) ? raw : `${raw.replace(" ", "T")}${raw.length <= 16 ? ":00" : ""}+07:00`);
   if (Number.isNaN(due.getTime())) throw new Error("Thời gian nhắc không hợp lệ");
   const local = new Intl.DateTimeFormat("sv-SE", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(due).replace(" ", "T");
-  const rel = freePath(v, F.plan, `${local.slice(0, 10)} ${p.title}`);
+  const rel = freePath(v, F.reminders, `${local.slice(0, 10)} ${p.title}`);
   writeNoteFile(v, rel, `${stringifyFrontmatter({ type: "reminder", due: `${local}:00+07:00`, done: false, notified: false, by: p.by ?? "Sếp", date: local.slice(0, 10) })}# ${p.title}\n\n${p.note ?? ""}\n\nNhắc lúc ${local.slice(11, 16)} ngày ${viDate(local.slice(0, 10))} · [[${local.slice(0, 10)}]]\n`);
   emit(bizId, "assistant.updated", { reminder: rel });
   return { path: rel, due: `${local}:00+07:00`, title: p.title };
@@ -384,13 +590,13 @@ export async function brainTick(bizId: string, opts: { full?: boolean } = {}) {
     if (!v) return;
     scanVault(v.id);
     fireReminders(v);
-    try { syncFeedback(v); } catch (e) { logger.warn("brain.feedback_sync_failed", { error: String(e) }); }
+    for (const f of [syncFeedback, syncSales, syncMetrics]) { try { f(v); } catch (e) { logger.warn("brain.sync_failed", { step: f.name, error: String(e) }); } }
     if (opts.full || Date.now() - lastSlow > 3600_000) {
       lastSlow = Date.now();
-      for (const f of [syncDna, syncKnowledgeDocs, syncSkills, syncLessons, syncAgents]) { try { f(v); } catch (e) { logger.warn("brain.sync_failed", { step: f.name, error: String(e) }); } }
+      for (const f of [syncDna, syncMarket, syncKnowledgeDocs, syncSkills, syncLessons, syncTemplates, syncWinners, syncReview, syncFeedbackLoop, syncAdsDecisions, syncAgents]) { try { f(v); } catch (e) { logger.warn("brain.sync_failed", { step: f.name, error: String(e) }); } }
       if (opts.full) {
         for (const t of q.all<Row>("SELECT id FROM task WHERE biz_id = ? AND status = 'done' ORDER BY updated_at DESC LIMIT 60", bizId)) archiveTask(t.id);
-        for (const j of q.all<Row>("SELECT id FROM creative_job WHERE biz_id = ? AND status = 'done'", bizId)) archiveVideo(j.id);
+        for (const j of q.all<Row>("SELECT id FROM creative_job WHERE biz_id = ? AND status IN ('done','approved','drafted')", bizId)) archiveVideo(j.id);
         for (const t of q.all<Row>("SELECT id FROM assistant_thread WHERE biz_id = ?", bizId)) archiveConversation(t.id);
       }
     }

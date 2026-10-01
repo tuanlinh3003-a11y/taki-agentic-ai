@@ -9,9 +9,10 @@ import { forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY
 export type GNode = { id: string; title: string; cluster: string; degree: number; mtime: string; x?: number; y?: number; vx?: number; vy?: number; fx?: number | null; fy?: number | null };
 export type GLink = { source: string | GNode; target: string | GNode };
 const PALETTE: Record<string, string> = {
-  "Dự án": "#f59e0b", "Marketing": "#10b981", "Hội thoại": "#3b82f6", "Quy trình": "#8b5cf6", "Tri thức": "#0ea5e9", "Tham khảo": "#06b6d4",
-  "Đội AI": "#ec4899", "Nhật ký": "#f97316", "Kế hoạch": "#14b8a6", "Thương hiệu": "#a855f7", "Bài học": "#22c55e", "Tổng quan": "#ef4444",
-  "Hộp thư": "#64748b", "Ý tưởng": "#6366f1", "Dữ liệu": "#84cc16", "Đời sống": "#f43f5e", "Lưu trữ": "#94a3b8", "Tệp": "#a3a3a3",
+  "Tổng quan": "#ef4444", "Hộp thư": "#64748b", "Nhật ký": "#f97316", "Kế hoạch": "#14b8a6", "Thương hiệu": "#a855f7", "Thị trường": "#0891b2",
+  "Chiến dịch": "#f59e0b", "Nội dung": "#10b981", "Video": "#e11d48", "Quảng cáo": "#2563eb", "Bán hàng": "#16a34a", "Review": "#d97706",
+  "Feedback loop": "#7c3aed", "Số liệu": "#0d9488", "Tri thức": "#0ea5e9", "Quy trình": "#8b5cf6", "Đội AI": "#ec4899", "Ý tưởng": "#6366f1",
+  "Mẫu thắng": "#eab308", "Lưu trữ": "#94a3b8", "Tệp": "#a3a3a3",
 };
 const EXTRA = ["#0ea5e9", "#84cc16", "#f43f5e", "#a855f7", "#14b8a6", "#f59e0b", "#6366f1", "#ec4899"];
 export const clusterColor = (key: string) => PALETTE[key] ?? EXTRA[[...key].reduce((a, c) => a + c.charCodeAt(0), 0) % EXTRA.length];

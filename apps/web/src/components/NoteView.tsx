@@ -117,7 +117,7 @@ export function NoteView({ vault, path, onOpen, onClose, onAsk, resolve }: {
 
       <Modal open={rename !== null} onClose={() => setRename(null)} title="Đổi tên / chuyển ghi chú" footer={<><Button variant="ghost" onClick={() => setRename(null)}>Hủy</Button><Button variant="primary" onClick={doRename}>Đổi</Button></>}>
         <input className={inputCls} value={rename ?? ""} onChange={(e) => setRename(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doRename()} autoFocus />
-        <p className="mt-2 text-xs text-muted">Gõ tên mới, hoặc đường dẫn có thư mục (vd: <code>17. Lưu trữ/Tên cũ</code>) để chuyển. Các [[liên kết]] trỏ tới ghi chú này được sửa theo.</p>
+        <p className="mt-2 text-xs text-muted">Gõ tên mới, hoặc đường dẫn có thư mục (vd: <code>19. Lưu trữ/Tên cũ</code>) để chuyển. Các [[liên kết]] trỏ tới ghi chú này được sửa theo.</p>
       </Modal>
       <Modal open={confirmDel} onClose={() => setConfirmDel(false)} title="Xóa ghi chú?" footer={<><Button variant="ghost" onClick={() => setConfirmDel(false)}>Hủy</Button><Button variant="danger" onClick={del}>Chuyển vào thùng rác</Button></>}>
         <p className="text-sm">"{data.title}" sẽ được chuyển vào thư mục <code>.trash</code> của Agentic Brain (không xóa vĩnh viễn, khôi phục được trong Finder/Obsidian).</p>

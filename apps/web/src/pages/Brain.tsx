@@ -332,24 +332,45 @@ function NewVaultModal({ open, onClose, onDone }: { open: boolean; onClose: () =
     <Modal open={open} onClose={onClose} title="Thêm kho trí nhớ" footer={<><Button variant="ghost" onClick={onClose}>Hủy</Button><Button variant="primary" loading={busy} disabled={name.trim().length < 2} onClick={go}>Thêm</Button></>}>
       <div className="space-y-3 text-sm">
         <div><p className="mb-1 font-medium">Tên</p><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Agentic Brain · Đỗ Thu Trà" autoFocus /></div>
-        <div><p className="mb-1 font-medium">Thư mục có sẵn (tùy chọn)</p><input className={inputCls} value={path} onChange={(e) => setPath(e.target.value)} placeholder="/Users/…/Obsidian/… — để trống = tạo kho mới đủ 18 ngăn" /></div>
-        {path.trim() && <label className="flex items-center gap-2"><input type="checkbox" checked={scaffold} onChange={(e) => setScaffold(e.target.checked)} />Thêm 18 ngăn chuẩn (1. Tổng quan … 18. Tệp & hình ảnh) nếu chưa có</label>}
+        <div><p className="mb-1 font-medium">Thư mục có sẵn (tùy chọn)</p><input className={inputCls} value={path} onChange={(e) => setPath(e.target.value)} placeholder="/Users/…/Obsidian/… — để trống = tạo kho mới đủ 20 ngăn" /></div>
+        {path.trim() && <label className="flex items-center gap-2"><input type="checkbox" checked={scaffold} onChange={(e) => setScaffold(e.target.checked)} />Thêm 20 ngăn chuẩn (1. Tổng quan … 20. Tệp & hình ảnh) nếu chưa có</label>}
         <p className="text-xs text-muted">Agentic Brain lưu bằng file Markdown thường — mở được bằng Obsidian. Nối thư mục Obsidian có sẵn: hệ thống đọc tất cả ghi chú, không đổi gì nếu không được bảo.</p>
       </div>
     </Modal>
   );
 }
+const TEMPLATE_DIR = "16. Sổ tay quy trình/Mẫu ghi chú";
 function NewNoteModal({ vault, folders, init, onClose, onDone }: { vault: string | null; folders: string[]; init: { folder: string } | null; onClose: () => void; onDone: (p: string) => void }) {
   const [title, setTitle] = useState("");
   const [folder, setFolder] = useState("2. Hộp thư");
+  const [tpl, setTpl] = useState("");
+  const [templates, setTemplates] = useState<{ path: string; title: string }[]>([]);
   const toast = useToast();
-  useEffect(() => { if (init) { setFolder(init.folder); setTitle(""); } }, [init]);
-  const go = async () => { try { const r = await api.post(`brain/${vault}/note`, { folder, title }); onDone(r.path); } catch (e: any) { toast(e.message, "err"); } };
+  useEffect(() => {
+    if (!init) return;
+    setFolder(init.folder); setTitle(""); setTpl("");
+    if (vault) api.get(`brain/${vault}/tree`).then((t) => {
+      const dir = (function find(n: any): any { if (n.path === TEMPLATE_DIR) return n; for (const c of n.children ?? []) { const f = find(c); if (f) return f; } return null; })(t);
+      setTemplates((dir?.children ?? []).filter((c: any) => c.type === "note").map((c: any) => ({ path: c.path, title: c.title })));
+    }).catch(() => {});
+  }, [init, vault]);
+  const go = async () => {
+    try {
+      let content: string | undefined;
+      if (tpl) { const n = await api.get(`brain/${vault}/note?path=${encodeURIComponent(tpl)}`); content = String(n.content).replace(/^---[\s\S]*?---\n?/, "").replace(/^#\s.*\n+/, ""); }
+      const r = await api.post(`brain/${vault}/note`, { folder, title, content });
+      onDone(r.path);
+    } catch (e: any) { toast(e.message, "err"); }
+  };
   return (
     <Modal open={!!init} onClose={onClose} title="Ghi chú mới" footer={<><Button variant="ghost" onClick={onClose}>Hủy</Button><Button variant="primary" disabled={!title.trim()} onClick={go}>Tạo</Button></>}>
       <div className="space-y-3 text-sm">
         <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && title.trim() && go()} placeholder="Tên ghi chú" autoFocus />
         <select className={inputCls} value={folder} onChange={(e) => setFolder(e.target.value)}>{folders.map((f) => <option key={f} value={f}>{f}</option>)}</select>
+        <select className={inputCls} value={tpl} onChange={(e) => setTpl(e.target.value)}>
+          <option value="">Ghi chú trống</option>
+          {templates.map((t) => <option key={t.path} value={t.path}>Dùng mẫu: {t.title}</option>)}
+        </select>
       </div>
     </Modal>
   );
@@ -360,7 +381,7 @@ function NewFolderModal({ vault, open, onClose, onDone }: { vault: string | null
   const go = async () => { try { await api.post(`brain/${vault}/folder`, { path }); setPath(""); onDone(); } catch (e: any) { toast(e.message, "err"); } };
   return (
     <Modal open={open} onClose={onClose} title="Thư mục mới" footer={<><Button variant="ghost" onClick={onClose}>Hủy</Button><Button variant="primary" disabled={!path.trim()} onClick={go}>Tạo</Button></>}>
-      <input className={inputCls} value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === "Enter" && path.trim() && go()} placeholder="8. Dự án/Chiến dịch Tết 2027" autoFocus />
+      <input className={inputCls} value={path} onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => e.key === "Enter" && path.trim() && go()} placeholder="7. Chiến dịch/Chiến dịch Tết 2027" autoFocus />
     </Modal>
   );
 }
