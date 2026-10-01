@@ -7,6 +7,8 @@ import { expireApprovals } from "./approvals.ts";
 import { learnDaily } from "./learning.ts";
 import { reattachVideoJob, runDraftUpload, runVideoJob } from "./creative.ts";
 import { ensureAssistantAgent } from "./assistant.ts";
+import { startBrain } from "./brain.ts";
+import { brainTick, registerBrainHooks } from "./brain-auto.ts";
 import { runPublishJob, schedulePublish, snapshotPost } from "./publishing.ts";
 import { startScheduler, startWorkers, type Handler } from "./queue.ts";
 import { runTask } from "./runtime.ts";
@@ -28,6 +30,8 @@ export * from "./zalo-followup.ts";
 export * from "./chrome-profiles.ts";
 export * from "./flow-browser.ts";
 export * from "./assistant.ts";
+export * from "./brain.ts";
+export * from "./brain-auto.ts";
 
 export async function dailyReport(bizId: string) {
   const ads = q.all<Row>("SELECT id FROM ad WHERE biz_id = ?", bizId);
@@ -63,6 +67,7 @@ export const HANDLERS: Record<string, Handler> = {
   "connection.health": async (p) => connectionHealthAll(p.bizId),
   "automations.tick": async (p) => void (await automationsTick(p.bizId)),
   "approvals.expire": async () => void expireApprovals(),
+  "brain.tick": async (p) => brainTick(p.bizId),
 };
 
 export function startOrchestrator() {
@@ -76,9 +81,15 @@ export function startOrchestrator() {
   // Flow agents run detached and survive a server restart: re-attach (live log + result.json).
   for (const j of q.all<Row>("SELECT id FROM creative_job WHERE status = 'running'")) void reattachVideoJob(j.id).catch((e) => logger.warn("creative.reattach_failed", { jobId: j.id, error: String(e) }));
   registerTelegramFromDb();
+  // Bộ não: index + watch every vault, archive finished work as it happens, first tick (creates the default vault).
+  startBrain();
+  registerBrainHooks();
   registerZaloProxy();
   for (const b of q.all<Row>("SELECT id FROM biz")) {
     ensureAssistantAgent(b.id);
+    setTimeout(() => void brainTick(b.id, { full: true }).catch((e) => logger.warn("brain.boot_tick_failed", { error: String(e) })), 3000);
+    if (!q.get("SELECT id FROM schedule WHERE biz_id = ? AND name = 'brain.tick'", b.id))
+      insert("schedule", { biz_id: b.id, name: "brain.tick", queue: "agent", every_minutes: 5, enabled: 1, label: "Bộ não: nhật ký, dashboard, nhắc việc, đồng bộ (5 phút)", last_run_at: nowIso() });
     ensureAutomations(b.id);
     // Configs can run every 5 minutes: the tick and rule evaluation must be at least that frequent.
     if (!q.get("SELECT id FROM schedule WHERE biz_id = ? AND name = 'automations.tick'", b.id))

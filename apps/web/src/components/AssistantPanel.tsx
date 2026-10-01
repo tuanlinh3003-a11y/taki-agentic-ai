@@ -1,20 +1,23 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, ChevronRight, CircleDot, ClipboardList, History, Info, Loader2, MessageSquareText, Moon, Plus, Search, Send, ShieldCheck, Square, Trash2, Wrench, X, XCircle } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
+import { AlarmClock, AlertTriangle, CheckCircle2, ChevronRight, CircleDot, ClipboardList, History, Info, Loader2, MessageSquareText, Mic, MicOff, Moon, Plus, Search, Send, ShieldCheck, Square, ThumbsDown, ThumbsUp, Trash2, Wrench, X, XCircle } from "lucide-react";
 import { api, useApi, useEvents } from "../lib/api";
 import { timeAgo } from "../lib/format";
-import { Badge, Toggle, cx, useToast } from "./ui";
+import { useSpeech } from "../lib/speech";
+import { Badge, Toggle, cx, inputCls, useToast } from "./ui";
 
 /**
  * Ngân Nguyệt — the CEO's command assistant, floating on every page. Chat (live streaming, tool steps, confirm
  * cards), work she dispatched, system findings and history. Backend: /v1/assistant/* (packages/orchestrator/src/assistant.ts).
  */
-type Tab = "chat" | "dispatch" | "findings" | "history";
+type Tab = "chat" | "dispatch" | "findings" | "feedback" | "history" | "reminders";
 const TABS: { key: Tab; label: string; icon: any }[] = [
   { key: "chat", label: "Trò chuyện", icon: MessageSquareText },
   { key: "dispatch", label: "Việc giao", icon: ClipboardList },
   { key: "findings", label: "Phát hiện", icon: Search },
+  { key: "feedback", label: "Phản hồi", icon: ThumbsUp },
   { key: "history", label: "Lịch sử", icon: History },
+  { key: "reminders", label: "Lịch & nhắc", icon: AlarmClock },
 ];
 const STATUS_VI: Record<string, [string, any]> = {
   ready: ["Chờ chạy", "gray"], pending: ["Chờ", "gray"], queued: ["Chờ", "gray"], running: ["Đang làm", "blue"], in_review: ["Đang review", "violet"], revising: ["Đang sửa", "amber"],
@@ -34,13 +37,17 @@ export function NguyetAvatar({ size = 40, ring = true }: { size?: number; ring?:
 // ---------------- Minimal, safe markdown (bold, italic, code, links, lists, headings) ----------------
 function inline(text: string, key: string): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = /(\*\*[^*]+\*\*|\*[^*\s][^*]*\*|_[^_\s][^_]*_|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g;
+  const re = /(\[\[[^\]]+\]\]|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|_[^_\s][^_]*_|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g;
   let last = 0, m: RegExpExecArray | null, i = 0;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
     const t = m[0];
     const k = `${key}-${i++}`;
-    if (t.startsWith("**")) out.push(<strong key={k} className="font-semibold text-ink">{t.slice(2, -2)}</strong>);
+    if (t.startsWith("[[")) {
+      // [[Ghi chú]] in Bộ não → opens it on the brain page
+      const [target, alias] = t.slice(2, -2).split("|");
+      out.push(<Link key={k} to={`/brain?link=${encodeURIComponent(target.split("#")[0].trim())}`} className="font-medium text-violet-600 hover:underline dark:text-violet-300">{alias ?? target.split("/").pop()}</Link>);
+    } else if (t.startsWith("**")) out.push(<strong key={k} className="font-semibold text-ink">{t.slice(2, -2)}</strong>);
     else if (t.startsWith("`")) out.push(<code key={k} className="rounded bg-soft px-1 py-0.5 text-[12px]">{t.slice(1, -1)}</code>);
     else if (t.startsWith("[")) {
       const [, label, href] = t.match(/^\[([^\]]+)\]\(([^)]+)\)$/) ?? [];
@@ -98,6 +105,7 @@ function useWide() {
 }
 
 export function AssistantPanel() {
+  const location = useLocation();
   const wide = useWide();
   // Collapsed by default; only a wide screen remembers "open" (an overlay would cover the page).
   const [open, setOpen] = useState(() => store.get("assistant.open") === "1" && window.matchMedia(DOCK_MQ).matches);
@@ -119,8 +127,10 @@ export function AssistantPanel() {
   const [pendingAsk, setPendingAsk] = useState<string | null>(null);
   useEffect(() => {
     const h = (e: Event) => { setOpen(true); setTab("chat"); setPendingAsk(String((e as CustomEvent).detail ?? "")); };
+    const o = () => setOpen(true);
     window.addEventListener("nguyet:ask", h);
-    return () => window.removeEventListener("nguyet:ask", h);
+    window.addEventListener("nguyet:open", o);
+    return () => { window.removeEventListener("nguyet:ask", h); window.removeEventListener("nguyet:open", o); };
   }, []);
 
   const newThread = async () => {
@@ -128,6 +138,7 @@ export function AssistantPanel() {
   };
 
   if (!open) {
+    if (location.pathname.startsWith("/brain")) return null; // the brain page has its own "Nói với Ngân Nguyệt" bar
     return (
       <button onClick={() => setOpen(true)} title="Trợ lý Ngân Nguyệt" className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-card py-1.5 pl-1.5 pr-4 shadow-lg ring-1 ring-line transition hover:shadow-xl">
         <span className="relative"><NguyetAvatar size={40} />{urgent > 0 && <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white ring-2 ring-card">{urgent}</span>}</span>
@@ -145,10 +156,10 @@ export function AssistantPanel() {
         <div className="min-w-0 flex-1"><p className="truncate text-base font-bold">Trợ lý Ngân Nguyệt</p><p className="truncate text-xs text-white/80">Tổng điều phối · riêng của Sếp</p></div>
         <button onClick={() => setOpen(false)} className="grid h-9 w-9 place-items-center rounded-full bg-white/15 hover:bg-white/25" title="Thu gọn"><X className="h-5 w-5" /></button>
       </div>
-      <div className="grid grid-cols-4 gap-1.5 border-b border-line p-2">
+      <div className="grid grid-cols-3 gap-1.5 border-b border-line p-2">
         {TABS.map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)} className={cx("flex flex-col items-center gap-0.5 rounded-xl border px-1 py-1.5 text-[11px] font-medium transition", tab === t.key ? "border-blue-500/60 bg-blue-500/10 text-blue-700 dark:text-blue-300" : "border-line text-muted hover:bg-soft")}>
-            <span className="relative"><t.icon className="h-4 w-4" />{t.key === "findings" && urgent > 0 && <span className="absolute -right-2 -top-1.5 h-2 w-2 rounded-full bg-rose-500" />}</span>{t.label}
+          <button key={t.key} onClick={() => setTab(t.key)} className={cx("flex items-center justify-center gap-1.5 rounded-xl border px-1 py-1.5 text-xs font-medium transition", tab === t.key ? "border-blue-500/60 bg-blue-500/10 text-blue-700 dark:text-blue-300" : "border-line text-muted hover:bg-soft")}>
+            <span className="relative"><t.icon className="h-3.5 w-3.5" />{t.key === "findings" && urgent > 0 && <span className="absolute -right-1.5 -top-1.5 h-2 w-2 rounded-full bg-rose-500" />}</span>{t.label}
           </button>
         ))}
       </div>
@@ -156,6 +167,8 @@ export function AssistantPanel() {
       {tab === "dispatch" && <DispatchTab />}
       {tab === "findings" && <FindingsTab data={findings.data} ask={(t) => { setTab("chat"); setPendingAsk(t); }} />}
       {tab === "history" && <HistoryTab current={threadId} open={(id) => { setThreadId(id); setTab("chat"); }} />}
+      {tab === "feedback" && <FeedbackTab open={(id) => { setThreadId(id); setTab("chat"); }} />}
+      {tab === "reminders" && <RemindersTab ask={(t) => { setTab("chat"); setPendingAsk(t); }} />}
     </div>
   );
 }
@@ -206,6 +219,7 @@ function ChatTab({ info, threadId, setThreadId, newThread, pendingAsk, clearAsk,
   useEffect(() => { if (pendingAsk) { clearAsk(); void send(pendingAsk); } }, [pendingAsk]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stop = async () => { if (threadId) await api.post(`assistant/threads/${threadId}/stop`).catch(() => {}); };
+  const speech = useSpeech((t) => setText((x) => (x ? `${x} ${t}` : t)));
   const setAuto = async (v: boolean) => {
     try { await api.put("assistant/settings", { autoConfirm: v }); onSettings(); toast(v ? "Ngân Nguyệt sẽ tự thực hiện thao tác nhạy cảm (không hỏi lại)" : "Thao tác nhạy cảm sẽ cần Sếp bấm xác nhận", v ? "info" : "ok"); } catch (e: any) { toast(e.message, "err"); }
   };
@@ -257,7 +271,9 @@ function ChatTab({ info, threadId, setThreadId, newThread, pendingAsk, clearAsk,
       </div>
 
       <div className="flex items-end gap-2 border-t border-line p-2">
-        <textarea rows={1} value={text} onChange={(e) => setText(e.target.value)} placeholder="Nhắn Ngân Nguyệt…"
+        <button onClick={speech.toggle} disabled={!speech.supported} title={speech.supported ? (speech.listening ? "Dừng nghe" : "Nói (tiếng Việt)") : "Trình duyệt chưa hỗ trợ nhận giọng nói"}
+          className={cx("grid h-[42px] w-[42px] shrink-0 place-items-center rounded-xl border", speech.listening ? "animate-pulse border-rose-400 bg-rose-500 text-white" : "border-line text-ink hover:bg-soft disabled:opacity-40")}>{speech.listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}</button>
+        <textarea rows={1} value={speech.interim ? `${text} ${speech.interim}` : text} onChange={(e) => setText(e.target.value)} placeholder="Nhắn Ngân Nguyệt…"
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}
           className="max-h-32 min-h-[42px] flex-1 resize-none rounded-xl border border-line bg-card px-3 py-2.5 text-sm text-ink outline-none placeholder:text-muted focus:border-blue-500" />
         {running
@@ -289,9 +305,36 @@ function MessageBubble({ m }: { m: any }) {
           {m.text ? <Markdown text={m.text} /> : streaming ? <span className="flex items-center gap-2 text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" />Ngân Nguyệt đang xử lý…</span> : null}
           {m.status === "error" && <p className="mt-1 text-xs text-rose-600">{m.error ?? "Lỗi"}</p>}
         </div>
-        <p className="pl-1 text-[10px] text-muted">{timeAgo(m.updated_at ?? m.created_at)}{m.model ? ` · ${m.model}` : ""}</p>
+        <div className="flex items-center gap-1 pl-1 text-[10px] text-muted">
+          <span>{timeAgo(m.updated_at ?? m.created_at)}{m.model ? ` · ${m.model}` : ""}</span>
+          {!streaming && m.text && <Rate m={m} />}
+        </div>
       </div>
     </div>
+  );
+}
+
+/** 👍/👎 on an answer; 👎 asks what to do differently — Ngân Nguyệt applies it from the next message on. */
+function Rate({ m }: { m: any }) {
+  const [fb, setFb] = useState<string | null>(m.feedback ?? null);
+  const [asking, setAsking] = useState(false);
+  const [note, setNote] = useState(m.feedback_note ?? "");
+  const toast = useToast();
+  const save = async (feedback: "up" | "down" | null, n?: string) => {
+    try { await api.post(`assistant/messages/${m.id}/feedback`, { feedback, note: n }); setFb(feedback); if (n) toast("Đã ghi góp ý — Ngân Nguyệt sẽ làm theo từ tin sau"); } catch (e: any) { toast(e.message, "err"); }
+  };
+  return (
+    <span className="relative ml-auto flex items-center gap-0.5">
+      <button onClick={() => save(fb === "up" ? null : "up")} className={cx("rounded p-1 hover:bg-soft", fb === "up" && "text-emerald-600")} title="Hữu ích"><ThumbsUp className="h-3 w-3" /></button>
+      <button onClick={() => { if (fb === "down") void save(null); else { setAsking(true); void save("down"); } }} className={cx("rounded p-1 hover:bg-soft", fb === "down" && "text-rose-600")} title="Chưa ổn"><ThumbsDown className="h-3 w-3" /></button>
+      {asking && (
+        <span className="absolute right-0 top-6 z-10 flex w-64 gap-1 rounded-xl border border-line bg-card p-1.5 shadow-lg">
+          <input autoFocus className="min-w-0 flex-1 rounded-lg border border-line bg-card px-2 py-1 text-xs text-ink" placeholder="Lần sau em nên làm khác thế nào?" value={note} onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { void save("down", note); setAsking(false); } if (e.key === "Escape") setAsking(false); }} />
+          <button onClick={() => { void save("down", note); setAsking(false); }} className="rounded-lg bg-blue-600 px-2 text-xs font-semibold text-white">Gửi</button>
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -384,6 +427,56 @@ function HistoryTab({ current, open }: { current: string | null; open: (id: stri
           </div>
         </Fragment>
       ))}
+    </div>
+  );
+}
+
+function FeedbackTab({ open }: { open: (threadId: string) => void }) {
+  const { data } = useApi<any[]>("assistant/feedback", ["assistant."]);
+  if (!data) return <div className="grid flex-1 place-items-center"><Loader2 className="h-5 w-5 animate-spin text-muted" /></div>;
+  const up = data.filter((d) => d.feedback === "up").length;
+  return (
+    <div className="flex-1 space-y-2 overflow-y-auto p-3 scroll-thin">
+      <p className="rounded-xl bg-soft p-3 text-xs text-muted">Bấm 👍/👎 dưới mỗi câu trả lời. Góp ý kèm ghi chú (👎) được Ngân Nguyệt áp dụng ngay từ tin nhắn sau và lưu vào Bộ não (07 - Learning).{data.length ? ` Đã chấm ${data.length}: 👍 ${up} · 👎 ${data.length - up}.` : ""}</p>
+      {!data.length ? <p className="p-4 text-center text-sm text-muted">Chưa có phản hồi nào.</p> : data.map((d) => (
+        <button key={d.id} onClick={() => open(d.thread_id)} className={cx("block w-full rounded-xl border p-3 text-left hover:bg-soft", d.feedback === "up" ? "border-emerald-400/40" : "border-rose-400/40")}>
+          <p className="flex items-center gap-1.5 text-xs font-medium text-ink">{d.feedback === "up" ? <ThumbsUp className="h-3.5 w-3.5 text-emerald-600" /> : <ThumbsDown className="h-3.5 w-3.5 text-rose-600" />}<span className="truncate">{d.thread_title}</span><span className="ml-auto shrink-0 text-[10px] text-muted">{timeAgo(d.updated_at)}</span></p>
+          {d.feedback_note && <p className="mt-1 text-xs font-semibold text-ink">“{d.feedback_note}”</p>}
+          <p className="mt-1 line-clamp-2 text-[11px] text-muted">{d.text}</p>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RemindersTab({ ask }: { ask: (t: string) => void }) {
+  const { data, reload } = useApi<any[]>("brain/reminders", ["brain.", "assistant."]);
+  const [title, setTitle] = useState("");
+  const [due, setDue] = useState(() => { const d = new Date(Date.now() + 3600_000); d.setMinutes(0, 0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16); });
+  const toast = useToast();
+  const add = async () => {
+    try { await api.post("brain/reminders", { title, due: due.replace("T", " ") }); setTitle(""); reload(); toast("Đã đặt nhắc việc"); } catch (e: any) { toast(e.message, "err"); }
+  };
+  const done = async (path: string) => { try { await api.post("brain/reminders/done", { path }); reload(); } catch (e: any) { toast(e.message, "err"); } };
+  const fmt = (iso: string) => new Date(iso).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return (
+    <div className="flex-1 space-y-3 overflow-y-auto p-3 scroll-thin">
+      <div className="space-y-2 rounded-xl border border-line p-3">
+        <input className={inputCls} placeholder="Nhắc việc gì? (vd: Gọi nhà cung cấp)" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && title.trim().length > 1 && add()} />
+        <div className="flex gap-2"><input type="datetime-local" className={cx(inputCls, "min-w-0 flex-1")} value={due} onChange={(e) => setDue(e.target.value)} /><button onClick={add} disabled={title.trim().length < 2} className="rounded-xl bg-blue-600 px-3 text-sm font-semibold text-white disabled:opacity-50">Đặt</button></div>
+        <button onClick={() => ask("Nhắc tôi 3 giờ chiều mai gọi nhà cung cấp")} className="text-[11px] text-blue-600 hover:underline">…hoặc nói với Ngân Nguyệt: “Nhắc tôi 3 giờ chiều mai gọi nhà cung cấp”</button>
+      </div>
+      {!data ? <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted" /> : !data.length ? <p className="text-center text-sm text-muted">Chưa có nhắc việc nào sắp tới.</p> : data.map((r) => {
+        const past = new Date(r.due).getTime() < Date.now();
+        return (
+          <div key={r.path} className={cx("flex items-start gap-2 rounded-xl border p-3", past ? "border-amber-400/50 bg-amber-500/5" : "border-line")}>
+            <AlarmClock className={cx("mt-0.5 h-4 w-4 shrink-0", past ? "text-amber-500" : "text-blue-500")} />
+            <div className="min-w-0 flex-1"><p className="text-sm font-medium text-ink">{r.title}</p><p className="text-[11px] text-muted">{fmt(r.due)}{r.notified ? " · đã nhắc" : past ? " · quá giờ" : ""}</p></div>
+            <Link to={`/brain?note=${encodeURIComponent(r.path)}`} className="text-[11px] text-blue-600 hover:underline">Mở</Link>
+            <button onClick={() => done(r.path)} className="rounded-lg border border-line px-2 py-0.5 text-[11px] text-ink hover:bg-soft">Xong</button>
+          </div>
+        );
+      })}
     </div>
   );
 }

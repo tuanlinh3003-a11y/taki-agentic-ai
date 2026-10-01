@@ -81,6 +81,29 @@ tool("nhat_ky", "Nhật ký hoạt động gần đây của hệ thống (ai l�
   pick(await get(`/v1/audit-log?limit=${so_luong ?? 40}`), ["at", "actor", "event", "ref_type", "ref_id"], so_luong ?? 40));
 tool("viec_da_giao", "Những việc Ngân Nguyệt đã giao cho các agent và trạng thái hiện tại.", {}, async () => get("/v1/assistant/dispatches"));
 
+// ---------------- Bộ não (vault ghi chú Markdown) ----------------
+tool("bo_nao_tim", "Tìm trong Bộ não (ghi chú, nhật ký, dự án, wiki, tri thức, hội thoại cũ). Tìm theo nội dung (mặc định) hoặc theo tên. Không dấu cũng tìm được.", {
+  cau_hoi: z.string().min(1), theo: z.enum(["noi_dung", "ten"]).optional(),
+}, async ({ cau_hoi, theo }) => get(`/v1/brain/active/search?q=${encodeURIComponent(cau_hoi)}&mode=${theo === "ten" ? "name" : "content"}&limit=20`));
+tool("bo_nao_doc", "Đọc toàn văn 1 ghi chú trong Bộ não (đường dẫn dạng '01 - Daily Log/2026-10-01.md'), kèm liên kết & backlink.", { path: z.string().min(4) }, async ({ path }) => {
+  const n = await get(`/v1/brain/active/note?path=${encodeURIComponent(path)}`);
+  return { path: n.path, title: n.title, tags: n.tags, content: n.content, links: n.links, backlinks: n.backlinks };
+});
+tool("bo_nao_ghi", "Tạo ghi chú MỚI trong Bộ não (mặc định 01 - Inbox). Dùng [[Tên ghi chú]] để liên kết. Thư mục chuẩn: 03 - Work, 04 - Marketing Engine, 05 - Knowledge (agent dùng làm tri thức), 07 - Learning, 08 - Thinking, 10 - Wiki…", {
+  tieu_de: z.string().min(1).max(160), noi_dung: z.string().min(1), thu_muc: z.string().optional(),
+}, async (a) => call("POST", "/v1/brain/active/note", { title: a.tieu_de, content: a.noi_dung, folder: a.thu_muc }));
+tool("bo_nao_them", "Ghi THÊM vào cuối 1 ghi chú có sẵn (không xóa nội dung cũ), ví dụ thêm ý vào nhật ký hôm nay.", { path: z.string().min(4), noi_dung: z.string().min(1) }, async (a) =>
+  call("POST", "/v1/brain/active/append", { path: a.path, text: a.noi_dung }));
+tool("bo_nao_nhat_ky", "Nhật ký 1 ngày trong Bộ não (mặc định hôm nay): hệ thống tự ghi việc các agent đã làm, số liệu, ghi chú sinh ra trong ngày.", { ngay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }, async ({ ngay }) => {
+  const { path } = await call("POST", "/v1/brain/active/daily", ngay ? { date: ngay } : {});
+  return (await get(`/v1/brain/active/note?path=${encodeURIComponent(path)}`)).content;
+});
+tool("bo_nao_gan_day", "Các ghi chú vừa tạo/sửa gần đây trong Bộ não.", {}, async () => get("/v1/brain/active/recent?limit=25"));
+tool("tao_nhac_viec", "Tạo nhắc việc cho Sếp (lưu ở 04 - Future Log, đến giờ hệ thống báo trên máy + trong app). Thời gian theo giờ Việt Nam, dạng 'YYYY-MM-DD HH:mm'.", {
+  tieu_de: z.string().min(2).max(160), thoi_gian: z.string().min(10), ghi_chu: z.string().optional(),
+}, async (a) => call("POST", "/v1/brain/reminders", { title: a.tieu_de, due: a.thoi_gian, note: a.ghi_chu }));
+tool("ds_nhac_viec", "Danh sách nhắc việc sắp tới (chưa xong).", {}, async () => get("/v1/brain/reminders"));
+
 // ---------------- Giao việc ngay (đi qua review / duyệt như bình thường) ----------------
 tool("giao_viec", "Giao NGAY 1 việc cho agent nội dung: content (bài mạng xã hội), video_script (kịch bản video ngắn), seo_web (bài blog SEO). Kết quả qua Review Agent rồi vào hộp Duyệt.", {
   agent: z.enum(["content", "video_script", "seo_web"]),

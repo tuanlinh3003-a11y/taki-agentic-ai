@@ -82,10 +82,20 @@ Nguồn: `~/.claude/skills` (skill) và `~/.claude/agents/mkt-*.md` (nhân viên
 
 Mọi agent gọi Claude đều nhận lớp **DNA** (`taki-dna` + references, hồ sơ `phong-marketing`). Skill viết cho phiên tương tác nên hệ thống giữ phương pháp/tiêu chí, bỏ các bước hỏi lại, ghi file, gọi tool. Mỗi lần chạy ghi lại phiên bản skill đã dùng (`task_run.skills`).
 
+## Bộ não (vault ghi chú — "second brain" của công ty)
+
+Trang **Bộ não** (`/brain`): kho ghi chú Markdown thật trên máy (`data/brain/<tên>`, mở được bằng **Obsidian**), cấu trúc `00 - Dashboard · 01 - Daily Log · 01 - Inbox · 02 - Identity · 02 - Weekly Log · 03 - Monthly Log · 03 - Work · 04 - Future Log · 04 - Marketing Engine · 05 - Data Cache · 05 - Knowledge · 06 - Life · 07 - Learning · 08 - Thinking · 09 - Archive · 10 - Wiki · agents · assets · attachments`.
+
+- **Giao diện**: cây thư mục + tìm theo Tên / Nội dung (không dấu vẫn tìm được, FTS5), **bản đồ tri thức** (mỗi chấm một ghi chú, đường nối = `[[liên kết]]`, gom cụm PROJECT / MARKETING & BUSINESS / WIKI / FACTS / AGENTS / NHẬT KÝ…, cuộn để phóng to, bấm chấm để mở), đọc/sửa ghi chú (tự lưu, backlink, đổi tên tự sửa liên kết, xóa = vào `.trash`), Lịch sử thay đổi, Nhật ký hôm nay, kéo/dán/đính kèm file vào Inbox, thanh **Nói với Ngân Nguyệt** (gõ hoặc nói bằng micro tiếng Việt). Có thể thêm nhiều bộ não hoặc **nối thư mục Obsidian có sẵn**.
+- **Tự vận hành** (`brain.tick` mỗi 5 phút + sự kiện): nhật ký ngày (việc các agent đã làm, duyệt, ads, khách, đơn), tổng kết tuần/tháng (Ngân Nguyệt tóm tắt qua Claude CLI), Dashboard, hồ sơ từng agent, wiki từng skill, sản phẩm & DNA, tri thức, bài học; mọi việc agent làm xong / video / hội thoại với Ngân Nguyệt được lưu ngay vào đúng thư mục. Phần hệ thống ghi nằm giữa `<!-- taki:auto -->` nên chữ Sếp viết thêm không bị ghi đè.
+- **Agent dùng bộ não**: ghi chú trong `05 - Knowledge` vào kho tri thức mà Chat/Content Agent tra cứu; Ngân Nguyệt tìm/đọc/ghi bộ não, đặt **nhắc việc** (`04 - Future Log`, đến giờ báo trên máy + trong app).
+- Dữ liệu bộ não nằm trong `data/` (không lên Git). Máy mới: bộ não tự tạo lại từ DNA, skill, agent khi chạy lần đầu.
+
 ## Trợ lý Ngân Nguyệt (tổng điều phối)
 
 Nút **Ngân Nguyệt** ở góc phải mọi trang mở khung chat điều hành: Sếp ra lệnh bằng lời, Ngân Nguyệt làm ngay.
 
+- 6 tab: **Trò chuyện** (micro tiếng Việt), **Việc giao**, **Phát hiện**, **Phản hồi** (👍/👎 + góp ý — Ngân Nguyệt áp dụng từ tin sau, lưu vào Bộ não), **Lịch sử**, **Lịch & nhắc**. Nút "Mở như app" trên thanh trên cài hệ thống thành ứng dụng riêng (Chrome/Edge).
 - **Trò chuyện**: giao việc tức thì cho các agent (Content / Video / SEO, chuỗi chiến dịch brief → nghiên cứu → chiến lược → nội dung, báo cáo Ads, video Flow…), xem và can thiệp mọi tác vụ, báo cáo bằng số liệu thật. Chữ hiện dần, kèm các bước công cụ đã gọi.
 - **Việc giao**: những việc Ngân Nguyệt đã giao + trạng thái trực tiếp. **Phát hiện**: lỗi/kẹt/chờ duyệt cần chú ý, bấm "Nhờ Ngân Nguyệt xử lý". **Lịch sử**: các cuộc trò chuyện (mỗi cuộc giữ ngữ cảnh riêng).
 - Cách chạy: **Claude Code CLI** — mỗi tin nhắn là `claude -p` bằng tài khoản Claude đã đăng nhập (gói Pro/Max, không dùng API key Anthropic; biến ANTHROPIC_API_KEY bị gỡ khỏi môi trường), nối tiếp phiên của cuộc trò chuyện. Công cụ duy nhất là `packages/orchestrator/bin/taki-mcp.mjs` (MCP) gọi API nội bộ của hệ thống trên máy (localhost:8787), ký tên "Ngân Nguyệt" trong nhật ký.

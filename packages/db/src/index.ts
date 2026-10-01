@@ -47,6 +47,9 @@ const MIGRATIONS: [table: string, column: string, ddl: string][] = [
   // External thread info (ZL-CRM conversation id, Zalo nick, thread id) for sending replies/follow-ups
   ["conversation", "ext", "TEXT NOT NULL DEFAULT '{}'"],
   ["follow_up_plan", "meta", "TEXT NOT NULL DEFAULT '{}'"],
+  // CEO feedback on Ngân Nguyệt answers (👍/👎 + note) — "Phản hồi" tab
+  ["assistant_message", "feedback", "TEXT"],
+  ["assistant_message", "feedback_note", "TEXT"],
 ];
 function migrate(d: DatabaseSync) {
   for (const [table, column, ddl] of MIGRATIONS) {

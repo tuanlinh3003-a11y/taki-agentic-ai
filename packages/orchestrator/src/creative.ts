@@ -75,7 +75,7 @@ export const DATA_DIR = resolve(process.cwd(), "data");
 const RUN_DIR = join(DATA_DIR, "creative");
 
 /** macOS notification centre (the only interruption the CEO gets: when a video is finished or failed). */
-function notifyDesktop(title: string, message: string) {
+export function notifyDesktop(title: string, message: string) {
   if (process.platform !== "darwin") return;
   const esc = (t: string) => t.replace(/\\/g, "\\\\").replace(/"/g, '\\"').slice(0, 220);
   try { execFileSync("osascript", ["-e", `display notification "${esc(message)}" with title "TAKI Agentic AI" subtitle "${esc(title)}" sound name "Glass"`], { timeout: 5000 }); } catch { /* notifications are best-effort */ }

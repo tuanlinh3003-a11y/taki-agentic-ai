@@ -108,6 +108,8 @@ function systemPrompt(bizId: string) {
     return `- ${c.key} (${c.label}): ${c.description}${cfg && !cfg.enabled ? " [ĐANG TẮT]" : ""}`;
   }).join("\n");
   const now = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", dateStyle: "full", timeStyle: "short" });
+  // What the CEO said about earlier answers (👎 with a note = a rule to follow from now on).
+  const fb = q.all<Row>("SELECT feedback, feedback_note, text FROM assistant_message WHERE biz_id = ? AND feedback IS NOT NULL AND feedback_note IS NOT NULL AND feedback_note != '' ORDER BY updated_at DESC LIMIT 8", bizId);
   const auto = assistantSettings(bizId).autoConfirm;
   return `# BẠN LÀ NGÂN NGUYỆT
 Trợ lý tổng điều phối riêng của CEO ${brand} trong hệ thống TAKI Agentic AI. Xưng "em", gọi người dùng là "Sếp". Tiếng Việt, ngắn gọn, đi thẳng vào việc, có số liệu thật.
@@ -119,11 +121,15 @@ Bây giờ: ${now} (giờ Việt Nam). Tình hình nhanh: ${snapshot(bizId)}.
 - Giao việc cho agent: giao_viec (bài viết / kịch bản / SEO), tao_chien_dich (chuỗi brief → nghiên cứu → chiến lược → nội dung), chay_bao_cao_ads, tao_video_flow… Sau khi giao: báo đã giao cho ai, mã việc, việc sẽ đi qua review/duyệt thế nào.
 - Can thiệp: xem/thử lại/hủy tác vụ, duyệt/từ chối, bật/tắt luồng & agent, kill switch, thao tác quảng cáo, trả lời khách. Không có tool riêng thì dùng goi_api (đọc ngay; ghi cần xác nhận).
 - Thao tác NHẠY CẢM (duyệt đăng, trả lời khách, đổi quảng cáo, tốn tín dụng Flow, bật/tắt luồng/agent, kill switch, mọi lệnh ghi qua goi_api): ${auto ? "Sếp đã bật chế độ TỰ THỰC HIỆN — tool chạy luôn, em báo lại kết quả." : "tool sẽ tạo THẺ XÁC NHẬN trong khung chat; em nói rõ thẻ đó làm gì và chờ Sếp bấm Xác nhận. Em KHÔNG tự xác nhận thay Sếp."}
+- BỘ NÃO (vault ghi chú của công ty, mở được bằng Obsidian): trước khi trả lời về kế hoạch, quyết định cũ, dự án, kiến thức nội bộ → bo_nao_tim / bo_nao_doc. Sếp bảo "ghi lại", "lưu ý tưởng", "note giúp" → bo_nao_ghi hoặc bo_nao_them (nhật ký hôm nay: 01 - Daily Log/<ngày>.md). Sếp bảo "nhắc tôi…" → tao_nhac_viec (giờ Việt Nam). Liên kết ghi chú bằng [[Tên ghi chú]]; trang Bộ não: [Bộ não](/brain).
 - Báo cáo: gọn, gạch đầu dòng, số quan trọng in đậm, kết thúc bằng 1-2 đề xuất hành động. Có thể dẫn link trang trong hệ thống dạng [Duyệt](/approvals), [Video Flow](/video-flow), [Agent](/agents), [Nội dung](/content), [Quảng cáo](/ads/stats), [Chat](/chat).
 - Không đăng nhập hộ, không nhập/tiết lộ mật khẩu, khóa API, token. Không xóa dữ liệu.
 
 # CÁC AGENT EM ĐIỀU PHỐI
-${roster}`;
+${roster}${fb.length ? `
+
+# SẾP ĐÃ GÓP Ý (làm theo)
+${fb.map((f) => `- ${f.feedback === "down" ? "Không hài lòng" : "Hài lòng"}: ${f.feedback_note}`).join("\n")}` : ""}`;
 }
 
 // ---------------- Runner ----------------
@@ -320,4 +326,17 @@ export function finishAction(bizId: string, id: string, status: "done" | "failed
   audit(bizId, actor, `assistant.action_${status}`, { type: "assistant_action", id }, { title: a.title, request: a.params });
   emit(bizId, "assistant.updated", { threadId: a.thread_id, actionId: id });
   return a;
+}
+
+// ---------------- "Phản hồi": CEO feedback on answers ----------------
+export function setFeedback(bizId: string, messageId: string, p: { feedback: "up" | "down" | null; note?: string }) {
+  const m = byId<Row>("assistant_message", messageId);
+  if (!m || m.biz_id !== bizId || m.role !== "assistant") throw new AppError("NOT_FOUND", "Không thấy câu trả lời", 404);
+  update("assistant_message", m.id, { feedback: p.feedback, feedback_note: p.note?.trim() || null });
+  audit(bizId, "Phòng Marketing TAKI", "assistant.feedback", { type: "assistant_message", id: m.id }, p);
+  emit(bizId, "assistant.updated", { threadId: m.thread_id, feedback: m.id });
+  return byId("assistant_message", m.id);
+}
+export function listFeedback(bizId: string) {
+  return q.all("SELECT m.id, m.thread_id, m.text, m.feedback, m.feedback_note, m.updated_at, t.title thread_title FROM assistant_message m JOIN assistant_thread t ON t.id = m.thread_id WHERE m.biz_id = ? AND m.feedback IS NOT NULL ORDER BY m.updated_at DESC LIMIT 100", bizId);
 }

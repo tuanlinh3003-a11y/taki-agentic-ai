@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  Activity, Bell, BookOpen, Clapperboard, Columns2, CreditCard, FileClock, FileText, Home, Library, Link2, Bot, CalendarDays, ChartLine, CheckCircle2,
+  Activity, Bell, BookOpen, Brain, Clapperboard, Columns2, CreditCard, FileClock, FileText, Home, Library, Link2, Bot, CalendarDays, ChartLine, CheckCircle2,
   ChevronDown, LayoutTemplate, Megaphone, Menu, MessageCircle, MessagesSquare, MonitorCog, Moon, Network, Octagon, Play, Rocket, Send, Settings, SlidersHorizontal, Sparkles, Sun, Target, X,
 } from "lucide-react";
 import { api, useApi, useEvents } from "../lib/api";
@@ -12,6 +12,7 @@ type NavItem = { to: string; label: string; icon: any; badge?: "unread" | "appro
 const NAV: { title: string; items: NavItem[] }[] = [
   { title: "Điều hành", items: [
     { to: "/", label: "Tổng quan", icon: Home },
+    { to: "/brain", label: "Bộ não", icon: Brain },
     { to: "/orchestra", label: "Bản đồ điều phối", icon: Network },
     { to: "/dna", label: "Mục tiêu & DNA", icon: Target },
     { to: "/plan", label: "Kế hoạch", icon: CalendarDays },
@@ -57,6 +58,14 @@ export function Layout({ children }: { children: ReactNode }) {
   const [killOpen, setKillOpen] = useState(false);
   const toast = useToast();
   const loc = useLocation();
+  // "Mở như app": install as a desktop app (Chrome/Edge PWA install prompt)
+  const [installEvt, setInstallEvt] = useState<any>(null);
+  useEffect(() => {
+    const h = (e: Event) => { e.preventDefault(); setInstallEvt(e); };
+    window.addEventListener("beforeinstallprompt", h);
+    return () => window.removeEventListener("beforeinstallprompt", h);
+  }, []);
+  const standalone = typeof window !== "undefined" && window.matchMedia("(display-mode: standalone)").matches;
   useEffect(() => {
     setOpen(false);
   }, [loc.pathname]);
@@ -142,6 +151,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <button className="lg:hidden" onClick={() => setOpen(true)} aria-label="Mở menu"><Menu className="h-5 w-5" /></button>
           <div className="hidden items-center gap-2 rounded-xl border border-line px-3 py-1.5 text-sm font-medium sm:flex">🏢 {sys?.biz?.name ?? ""}<ChevronDown className="h-4 w-4 text-muted" /></div>
           <div className="flex-1" />
+          {!standalone && installEvt && <Button size="sm" icon={MonitorCog} onClick={async () => { installEvt.prompt(); await installEvt.userChoice.catch(() => null); setInstallEvt(null); }}>Mở như app</Button>}
           <Button variant={killed ? "danger" : "secondary"} size="sm" icon={Octagon} onClick={() => setKillOpen(true)}>{killed ? "Đang dừng khẩn cấp" : "Dừng khẩn cấp"}</Button>
           <button onClick={() => setDark(!dark)} className="rounded-lg p-2 text-muted hover:bg-soft" aria-label="Đổi giao diện sáng/tối">{dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}</button>
           <div className="relative">

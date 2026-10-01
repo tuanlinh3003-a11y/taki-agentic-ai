@@ -4,6 +4,7 @@ import { Layout } from "./components/Layout";
 import { AssistantPanel } from "./components/AssistantPanel";
 import { ToastProvider } from "./components/ui";
 import { Overview } from "./pages/Overview";
+import { Brain } from "./pages/Brain";
 import { Dna } from "./pages/Dna";
 import { Plan } from "./pages/Plan";
 import { Agents } from "./pages/Agents";
@@ -50,6 +51,7 @@ export function App() {
       <Shell>
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/brain" element={<Brain />} />
           <Route path="/dna" element={<Dna />} />
           <Route path="/plan" element={<Plan />} />
           <Route path="/agents" element={<Agents />} />

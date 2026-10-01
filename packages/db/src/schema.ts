@@ -300,6 +300,18 @@ CREATE TABLE IF NOT EXISTS assistant_action (
   params TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', result TEXT, decided_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 
+-- Bộ não (vault): Markdown files on disk (Obsidian-compatible) + an index for search, graph and agents
+CREATE TABLE IF NOT EXISTS brain_vault (
+  id TEXT PRIMARY KEY, biz_id TEXT NOT NULL, name TEXT NOT NULL, path TEXT NOT NULL, managed INTEGER NOT NULL DEFAULT 1,
+  scanned_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS brain_note (
+  id TEXT PRIMARY KEY, biz_id TEXT NOT NULL, vault_id TEXT NOT NULL, path TEXT NOT NULL, title TEXT NOT NULL, folder TEXT NOT NULL,
+  tags TEXT NOT NULL DEFAULT '[]', meta TEXT NOT NULL DEFAULT '{}', refs TEXT NOT NULL DEFAULT '[]', words INTEGER NOT NULL DEFAULT 0,
+  mtime TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE (vault_id, path)
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS brain_fts USING fts5(vault_id UNINDEXED, path UNINDEXED, title, body, tokenize='unicode61 remove_diacritics 2');
+
 -- MCP
 CREATE TABLE IF NOT EXISTS mcp_key (
   id TEXT PRIMARY KEY, biz_id TEXT NOT NULL, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, key_last4 TEXT NOT NULL,

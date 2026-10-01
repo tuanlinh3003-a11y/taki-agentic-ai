@@ -4,7 +4,7 @@ import { byId, type Row } from "@dotaka/db";
 import { MODEL_CATALOG, cliInfo, effectiveProvider, modelFor } from "@dotaka/llm-gateway";
 import {
   ASSISTANT, assistantBusy, assistantFindings, assistantSettings, checkActionPath, createAction, createThread, deleteThread, dispatchAgentTask,
-  finishAction, getThread, listDispatches, listThreads, recordDispatch, saveAssistantSettings, sendAssistantMessage, stopAssistant,
+  finishAction, getThread, listDispatches, listFeedback, listThreads, recordDispatch, saveAssistantSettings, sendAssistantMessage, setFeedback, stopAssistant,
 } from "@dotaka/orchestrator";
 import { AppError } from "@dotaka/shared";
 import { routes, type Ctx } from "../http.ts";
@@ -60,6 +60,12 @@ export function assistantRoutes(app: FastifyInstance) {
   r.post("/v1/assistant/threads/:id/stop", ({ params }) => { stopAssistant(params.id); return { running: assistantBusy(params.id) }; });
 
   r.get("/v1/assistant/findings", ({ bizId }) => assistantFindings(bizId));
+  r.get("/v1/assistant/feedback", ({ bizId }) => listFeedback(bizId));
+  r.post("/v1/assistant/messages/:id/feedback", (c) => {
+    ceoOnly(c);
+    const p = z.object({ feedback: z.enum(["up", "down"]).nullable(), note: z.string().max(1000).optional() }).parse(c.body);
+    return setFeedback(c.bizId, c.params.id, p);
+  });
   r.get("/v1/assistant/dispatches", ({ bizId }) => listDispatches(bizId));
   r.post("/v1/assistant/dispatches", ({ bizId, body }) => {
     const p = z.object({ threadId: z.string().nullable().optional(), kind: z.string(), refType: z.enum(["task", "goal", "creative_job", "job"]), refId: z.string(), title: z.string() }).parse(body);
