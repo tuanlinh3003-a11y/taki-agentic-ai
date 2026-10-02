@@ -43,6 +43,29 @@ export const FLOW_TOOLS = {
       "Giọng: nút đang chọn có nền cam. Sau khi bấm MIỀN/GIỚI TÍNH, sang bước 3 kiểm tra dòng \"GIỌNG: …\" trên BẢNG KỊCH BẢN cho đúng.",
     ],
   },
+  "review-thoi-trang": {
+    skill: "flow-review-thoi-trang", label: "KOC FASHION – AI VIDEO STUDIO", minutes: 45,
+    hint: "Ảnh người mẫu/KOC + ảnh sản phẩm thời trang (thiếu thì AI tự tạo trên Flow), tên – chất liệu – màu, giá/ưu đãi, CTA",
+    toolUrl: "https://flow.google.com/project/af2cb6c3-2519-40b3-ad29-58156bf9e264/tool/160aa62c-4027-46a9-a46a-7e5edb523c05",
+    slots: [
+      { role: "Người mẫu / KOC", label: "Người mẫu / KOC (nhân vật chính)", hint: "Bước 1 NHÂN VẬT · rõ mặt, nửa người/toàn thân — thiếu thì AI tự tạo" },
+      { role: "Sản phẩm thời trang", label: "Ảnh sản phẩm (mặt trước)", hint: "Bước 2 · ảnh thật, rõ màu/logo — ảnh tham chiếu chính" },
+      { role: "Chi tiết sản phẩm", label: "Mặt sau / chi tiết vải", hint: "Bước 2 · tuỳ chọn" },
+      { role: "Bối cảnh (tham khảo)", label: "Bối cảnh tham khảo", hint: "Tuỳ chọn · Tool tự tạo ảnh bối cảnh, ảnh này để AI mô tả lại" },
+    ],
+    // Read from the Tool's own source on 2026-10-02 (shared tool 160aa62c, added to the review-do-an-vat project).
+    uiMap: [
+      "Màn chào \"KOC FASHION / AI VIDEO STUDIO\" → bấm \"Bắt đầu\" (bỏ qua nút logo). Tool KHÔNG lưu phiên: tải lại trang là về màn chào, mất hết dữ liệu — tránh reload giữa chừng.",
+      "Thanh bước: NHÂN VẬT · SẢN PHẨM · CẤU HÌNH · KỊCH BẢN · XUẤT VIDEO (không bấm để nhảy bước; đi bằng nút Tiếp tục).",
+      "NHÂN VẬT: nút \"THÊM ẢNH\" (tối đa 3 ảnh) + ô \"MÔ TẢ ĐẶC ĐIỂM NHÂN VẬT\" (>10 ký tự) → \"Khoá nhân vật & Tiếp tục\" → \"Tiếp tục\".",
+      "Bấm ô thêm ảnh → Flow mở hộp \"Select media\" (NGOÀI iframe, trong trang chính): tải ảnh mới bằng \"Upload media\" + browser_file_upload đúng đường dẫn, hoặc chọn ảnh đã có trong Images; xác nhận lựa chọn trong hộp.",
+      "Gán ảnh đầu vào theo vai trò: \"Người mẫu / KOC\" → THÊM ẢNH ở bước NHÂN VẬT; \"Sản phẩm thời trang\" → ô \"Ảnh sản phẩm\" đầu tiên; \"Chi tiết sản phẩm\" → các ô ảnh sản phẩm tiếp theo; \"Bối cảnh (tham khảo)\" KHÔNG tải lên được — xem ảnh (Read) rồi chọn preset gần nhất + viết vào ô mô tả bối cảnh.",
+      "SẢN PHẨM: ô ảnh \"Ảnh sản phẩm\" (+), ô \"Tên sản phẩm\", 2 ô Chất liệu (vd \"Vải Tweed\") + Màu (vd \"Be kem\"), ô \"AI Phân tích chi tiết\" (tự viết, hoặc \"⚡ Tự động phân tích\"); select bối cảnh 6 preset + ô mô tả; \"Tạo ảnh bối cảnh chuẩn\" (Nano Banana Pro) → \"Thử đồ AI\" (cần ảnh nhân vật + sản phẩm + bối cảnh) → chụp màn hình soát đúng mặt + đúng sản phẩm → \"Khoá sản phẩm\" → \"Tiếp tục cấu hình\".",
+      "CẤU HÌNH: Số lượng cảnh (nút remove/add, 1–12), Tỷ lệ 9:16 / 1:1 / 16:9 (clip chỉ ra 9:16 hoặc 16:9), 3 công tắc không ảnh hưởng clip → \"Tiếp tục viết kịch bản\".",
+      "KỊCH BẢN: chế độ \"AI Soạn thảo\" KHÔNG có nút viết khi chưa có cảnh → bấm \"Tự dán kịch bản\", dán mỗi dòng 1 cảnh, \"Áp dụng cho N cảnh\". Mỗi cảnh: textarea \"Lời thoại AI\", input \"Mô tả hình ảnh\" (sửa thành pose + góc máy + chuyển động vải), select \"Thời lượng\" (chọn 8 giây; bộ đếm \"x/20 từ\" xanh là vừa). KHÔNG bấm \"Viết lại toàn bộ kịch bản\" (ghi đè lời thoại). \"Tạo tất cả ảnh mẫu\" → hộp \"Bắt đầu tạo N ảnh\" → chờ ảnh khung đầu → \"Tiến hành tạo Video\".",
+      "XUẤT VIDEO: \"Tạo tất cả video\" (quay lần lượt, Veo 3.1 Lite 8s/cảnh, tự kiểm tra mặt + tự quay lại ≤2 lần). Tiến độ ở thanh nổi dưới cùng \"Tiến độ hoàn tất x/N\". Nhãn \"Nhân vật chưa khớp\" → xem clip rồi \"Tạo lại cảnh\" (≤1 lần) hoặc \"Bỏ qua lỗi\". Cảnh lỗi → \"Bắt đầu quay\". Nút \"Ghép & Tải Video\": KHÔNG bấm — dùng taki-flow-save.",
+    ],
+  },
   "cooking-director": {
     skill: "flow-cooking-director-video", label: "Flow Cooking Director v2", minutes: 45, hint: "3 ảnh (chân dung người dẫn, món ăn, bao bì/góc bếp) + tên, giá, điểm nổi bật", toolUrl: null, uiMap: [],
     slots: [
@@ -66,7 +89,7 @@ export const FLOW_TOOLS = {
     slots: [{ role: "Nhân vật", label: "Ảnh chân dung", hint: "Chính diện, rõ mặt, 1 người", required: true }],
   },
 } as { [k: string]: { engine?: "flow" | "moneyprinter" | "liveportrait"; skill: string; label: string; minutes: number; hint: string; toolUrl: string | null; uiMap: string[]; slots?: { role: string; label: string; hint: string; required?: boolean }[] } };
-export type FlowToolKey = "review-do-an-vat" | "cooking-director" | "cinematic" | "auto-video" | "portrait";
+export type FlowToolKey = "review-do-an-vat" | "review-thoi-trang" | "cooking-director" | "cinematic" | "auto-video" | "portrait";
 export const engineOf = (tool: string) => FLOW_TOOLS[tool]?.engine ?? "flow";
 
 export const CreativeInput = z.object({

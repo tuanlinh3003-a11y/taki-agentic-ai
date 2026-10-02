@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Clapperboard, UserRound, Wand2, ExternalLink, Film, Globe, ImagePlus, Loader2, Play, Square, Trash2, UtensilsCrossed } from "lucide-react";
+import { Clapperboard, UserRound, Wand2, ExternalLink, Film, Globe, ImagePlus, Loader2, Play, Shirt, Square, Trash2, UtensilsCrossed } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { timeAgo } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Loading, Modal, PageHeader, PlatformIcon, cx, inputCls, useToast } from "../components/ui";
 
-const TOOL_ICON: Record<string, any> = { "review-do-an-vat": UtensilsCrossed, "cooking-director": Clapperboard, cinematic: Film, "auto-video": Wand2, portrait: UserRound };
+const TOOL_ICON: Record<string, any> = { "review-do-an-vat": UtensilsCrossed, "review-thoi-trang": Shirt, "cooking-director": Clapperboard, cinematic: Film, "auto-video": Wand2, portrait: UserRound };
 const STATUS: Record<string, [string, any]> = {
   queued: ["Chờ trình duyệt", "gray"], running: ["Đang sản xuất", "blue"], done: ["Xong, chờ duyệt", "green"],
   approved: ["Đã duyệt", "blue"], drafted: ["Đã lên nháp kênh", "green"],
@@ -119,7 +119,7 @@ export function VideoFlow() {
               {(tools.data ?? []).map((t) => {
                 const Icon = TOOL_ICON[t.key] ?? Film;
                 return (
-                  <button key={t.key} onClick={() => set({ tool: t.key, durationSec: t.key === "cinematic" ? 60 : t.key === "cooking-director" ? 80 : t.key === "auto-video" ? 30 : 48 })} className={cx("rounded-xl border p-3 text-left transition", form.tool === t.key ? "border-blue-500 bg-blue-500/5 ring-2 ring-blue-500/15" : "border-line hover:bg-soft")}>
+                  <button key={t.key} onClick={() => set({ tool: t.key, durationSec: t.key === "cinematic" ? 60 : t.key === "cooking-director" ? 80 : t.key === "auto-video" ? 30 : t.key === "review-thoi-trang" ? 40 : 48 })} className={cx("rounded-xl border p-3 text-left transition", form.tool === t.key ? "border-blue-500 bg-blue-500/5 ring-2 ring-blue-500/15" : "border-line hover:bg-soft")}>
                     <Icon className="h-5 w-5 text-blue-600" />
                     <p className="mt-2 text-sm font-semibold">{t.label}</p>
                     <p className="text-[11px] text-muted">~{t.minutes} phút · {t.engine && t.engine !== "flow" ? "chạy trên máy, không tốn credit" : `Google Flow · skill v${t.skillVersion ?? "?"}`}</p>
@@ -210,7 +210,7 @@ export function VideoFlow() {
             </div>
             <ImageSlots slots={tool?.slots ?? []} images={form.images} onUpload={upload} onRemove={(path) => set({ images: form.images.filter((i: any) => i.path !== path) })}
               onRole={(path, role) => set({ images: form.images.map((i: any) => (i.path === path ? { ...i, role } : i)) })}
-              note={engine === "flow" && form.tool === "review-do-an-vat" ? "Ô nào để trống thì AI tự tạo ảnh trên Flow. Ảnh Sếp tải lên được dùng đúng ô, giữ nguyên khuôn mặt nhân vật chính ở mọi cảnh." : engine === "flow" ? "Ảnh Sếp tải lên được dùng làm tham chiếu cho đúng vai trò; nhân vật chính giữ nguyên khuôn mặt ở mọi cảnh." : undefined}
+              note={engine === "flow" && form.tool === "review-do-an-vat" ? "Ô nào để trống thì AI tự tạo ảnh trên Flow. Ảnh Sếp tải lên được dùng đúng ô, giữ nguyên khuôn mặt nhân vật chính ở mọi cảnh." : form.tool === "review-thoi-trang" ? "Nên có ảnh thật của sản phẩm để AI giữ đúng màu, logo, đường may. Thiếu ảnh người mẫu thì AI tự tạo; Tool thử đồ AI rồi giữ nguyên mặt người mẫu ở mọi cảnh (mỗi cảnh 8 giây)." : engine === "flow" ? "Ảnh Sếp tải lên được dùng làm tham chiếu cho đúng vai trò; nhân vật chính giữ nguyên khuôn mặt ở mọi cảnh." : undefined}
               extras={engine === "flow"} />
             <div>
               <p className="mb-2 text-sm font-medium">Đăng nháp lên kênh (sau khi duyệt)</p>

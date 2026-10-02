@@ -140,8 +140,8 @@ tool("huy_tac_vu", "Hủy 1 tác vụ đang chờ/chạy. Tạo thẻ xác nhậ
 tool("thao_tac_quang_cao", "Đề xuất tạm dừng / chạy lại / đổi ngân sách ngày 1 quảng cáo (VND). Tạo thẻ xác nhận.", {
   ad_id: z.string(), hanh_dong: z.enum(["pause_ad", "resume_ad", "update_budget"]), ngan_sach: z.number().int().positive().optional(), ten_quang_cao: z.string().optional(), ly_do: z.string().optional(),
 }, async (a) => confirm(`${{ pause_ad: "Tạm dừng", resume_ad: "Chạy lại", update_budget: `Đổi ngân sách ${a.ngan_sach?.toLocaleString("vi-VN")}đ` }[a.hanh_dong]} quảng cáo ${a.ten_quang_cao ?? a.ad_id}`, a.ly_do ?? "", "POST", `/v1/ads/${encodeURIComponent(a.ad_id)}/action`, { type: a.hanh_dong, amount: a.ngan_sach }));
-tool("tao_video_flow", "Sản xuất video trên Google Flow (tốn tín dụng Flow, ~40 phút, chạy ngầm). Công cụ: review-do-an-vat | cooking-director | cinematic. Tạo thẻ xác nhận.", {
-  cong_cu: z.enum(["review-do-an-vat", "cooking-director", "cinematic"]), tieu_de: z.string().min(2), noi_dung: z.string().min(5), san_pham: z.string().optional(),
+tool("tao_video_flow", "Sản xuất video trên Google Flow (tốn tín dụng Flow, ~40 phút, chạy ngầm). Công cụ: review-do-an-vat (đồ ăn vặt) | review-thoi-trang (thời trang — KOC FASHION, 8 giây/cảnh) | cooking-director | cinematic. Tạo thẻ xác nhận.", {
+  cong_cu: z.enum(["review-do-an-vat", "review-thoi-trang", "cooking-director", "cinematic"]), tieu_de: z.string().min(2), noi_dung: z.string().min(5), san_pham: z.string().optional(),
   thoi_luong: z.number().int().min(15).max(120).optional(), giong: z.string().optional(), hook: z.string().optional(), cta: z.string().optional(),
   kenh: z.array(z.enum(["tiktok", "facebook", "instagram"])).optional(), thuong_hieu: z.enum(["taki", "other"]).optional(),
 }, async (a) => confirm(`Tạo video Flow: ${a.tieu_de}`, `${a.cong_cu} · ${a.thoi_luong ?? "mặc định"}s · tốn tín dụng Flow`, "POST", "/v1/creative/jobs", {
