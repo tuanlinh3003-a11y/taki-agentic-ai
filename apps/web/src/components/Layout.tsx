@@ -21,7 +21,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
   ] },
   { title: "Nội dung & kênh", items: [
     { to: "/content", label: "Nội dung", icon: FileText },
-    { to: "/video-flow", label: "Sản xuất video Flow", icon: Clapperboard },
+    { to: "/video-flow", label: "Sản xuất video", icon: Clapperboard },
     { to: "/publish", label: "Đăng bài", icon: Send },
     { to: "/chat", label: "Chat & Khách hàng", icon: MessageCircle, badge: "unread" },
     { to: "/zalo", label: "Follow-up Zalo", icon: MessagesSquare },

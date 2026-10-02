@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { listChromeProfiles } from "./chrome-profiles.ts";
+import { ensureVideoBins, finishMaterialJob, runAutoVideo, runPortrait } from "./video-ai.ts";
 import { ensureFlowBrowser, flowAccounts, flowMcpConfig, flowSource, openFlowLogin, syncFlowProfile } from "./flow-browser.ts";
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
@@ -38,8 +39,12 @@ export const FLOW_TOOLS = {
   },
   "cooking-director": { skill: "flow-cooking-director-video", label: "Flow Cooking Director v2", minutes: 45, hint: "3 ảnh (chân dung người dẫn, món ăn, bao bì/góc bếp) + tên, giá, điểm nổi bật", toolUrl: null, uiMap: [] },
   "cinematic": { skill: "flow-cinematic-short-film", label: "Cinematic Short Film Studio", minutes: 50, hint: "Ảnh nhân vật/bối cảnh/đạo cụ + chủ đề, thông điệp, thời lượng 30/60/90s", toolUrl: null, uiMap: [] },
-} as { [k: string]: { skill: string; label: string; minutes: number; hint: string; toolUrl: string | null; uiMap: string[] } };
-export type FlowToolKey = "review-do-an-vat" | "cooking-director" | "cinematic";
+  // Local video AI (services/video-ai) — no Flow credits, no browser
+  "auto-video": { engine: "moneyprinter", skill: "", label: "Video tự động · cảnh + giọng đọc", minutes: 4, hint: "Chủ đề hoặc kịch bản có sẵn → Claude CLI viết lời đọc, MoneyPrinterTurbo ghép cảnh (Pexels/Pixabay hoặc clip của Sếp / clip Flow), giọng Việt Edge TTS, phụ đề tự động", toolUrl: null, uiMap: [] },
+  "portrait": { engine: "liveportrait", skill: "", label: "Ảnh chân dung cử động", minutes: 5, hint: "1 ảnh chân dung rõ mặt + video biểu cảm mẫu (có sẵn hoặc tải lên) → LivePortrait làm ảnh cử động; có thể lồng giọng đọc", toolUrl: null, uiMap: [] },
+} as { [k: string]: { engine?: "flow" | "moneyprinter" | "liveportrait"; skill: string; label: string; minutes: number; hint: string; toolUrl: string | null; uiMap: string[] } };
+export type FlowToolKey = "review-do-an-vat" | "cooking-director" | "cinematic" | "auto-video" | "portrait";
+export const engineOf = (tool: string) => FLOW_TOOLS[tool]?.engine ?? "flow";
 
 export const CreativeInput = z.object({
   tool: z.enum(Object.keys(FLOW_TOOLS) as [FlowToolKey, ...FlowToolKey[]]),
@@ -56,6 +61,13 @@ export const CreativeInput = z.object({
   sourceContentId: z.string().optional(),
   /** Veo model, used only if the Tool offers a model choice (the Tool otherwise decides). */
   veoModel: z.enum(["Veo 3.1 - Lite", "Veo 3.1 - Fast", "Veo 3.1 - Quality"]).default("Veo 3.1 - Fast"),
+  /** Options for the local engines (auto-video / portrait). */
+  video: z.object({
+    source: z.enum(["pexels", "pixabay", "local", "flow"]).optional(), materials: z.array(z.string()).max(30).optional(), flowJobId: z.string().optional(),
+    scriptReady: z.boolean().optional(), terms: z.string().max(400).optional(), aspect: z.enum(["9:16", "16:9", "1:1"]).optional(), clipDuration: z.number().int().min(2).max(10).optional(),
+    voiceName: z.string().max(60).optional(), voiceRate: z.number().min(0.6).max(1.6).optional(), bgm: z.enum(["random", "none"]).optional(),
+    driving: z.string().max(60).optional(), drivingPath: z.string().optional(), voiceText: z.string().max(2000).optional(), seconds: z.number().int().min(3).max(20).optional(),
+  }).optional(),
 });
 export type CreativeInput = z.infer<typeof CreativeInput>;
 
@@ -127,12 +139,16 @@ export function startVideoJob(bizId: string, raw: unknown, actor: string) {
   for (const img of input.images) if (!existsSync(img.path)) throw new AppError("NO_FILE", `Không thấy ảnh ${img.path}`);
   const cfg = q.get<Row>("SELECT enabled FROM agent_config WHERE biz_id = ? AND agent_key = 'creative'", bizId);
   if (!cfg?.enabled) throw new AppError("AGENT_DISABLED", "Creative Agent đang tắt (Agent & Tác vụ)");
-  const job = insert("creative_job", { biz_id: bizId, tool: input.tool, title: input.title, input, status: "queued", step: "Chờ trình duyệt rảnh", log: [], source_content_id: input.sourceContentId ?? null });
+  const engine = engineOf(input.tool);
+  for (const p of [...(input.video?.materials ?? []), input.video?.drivingPath].filter(Boolean) as string[]) if (!existsSync(p)) throw new AppError("NO_FILE", `Không thấy tệp ${p}`);
+  if (engine === "liveportrait" && !input.images.length) throw new AppError("NO_IMAGE", "Cần 1 ảnh chân dung rõ mặt");
+  const job = insert("creative_job", { biz_id: bizId, tool: input.tool, title: input.title, input, status: "queued", step: engine === "flow" ? "Chờ trình duyệt rảnh" : "Chờ máy rảnh", log: [], source_content_id: input.sourceContentId ?? null });
   const workdir = join(DATA_DIR, "creative", job.id);
   mkdirSync(join(workdir, "clips"), { recursive: true });
   update("creative_job", job.id, { workdir });
-  // One Flow job at a time: they share the user's Chrome and Flow credits.
-  enqueue("agent", "creative.flow", { jobId: job.id }, { bizId, idempotencyKey: `flow:${job.id}`, lockKey: "flow-chrome", maxAttempts: 1 });
+  // One job per resource at a time: Flow shares the CEO's Chrome + credits; local video AI shares 8 GB of RAM.
+  if (engine === "flow") enqueue("agent", "creative.flow", { jobId: job.id }, { bizId, idempotencyKey: `flow:${job.id}`, lockKey: "flow-chrome", maxAttempts: 1 });
+  else enqueue("agent", "creative.local", { jobId: job.id }, { bizId, idempotencyKey: `flow:${job.id}`, lockKey: "video-ai", maxAttempts: 1 });
   audit(bizId, actor, "creative.job_started", { type: "creative_job", id: job.id }, { tool: input.tool, title: input.title });
   emit(bizId, "creative.updated", { jobId: job.id, status: "queued" });
   return byId("creative_job", job.id);
@@ -165,6 +181,42 @@ export function cancelVideoJob(bizId: string, jobId: string, actor: string) {
   q.run("UPDATE job SET status = 'dead', last_error = 'cancelled' WHERE idempotency_key = ? AND status = 'queued'", `flow:${jobId}`);
   audit(bizId, actor, "creative.job_cancelled", { type: "creative_job", id: jobId });
   emit(bizId, "creative.updated", { jobId, status: "cancelled" });
+}
+
+/** Local engines (MoneyPrinterTurbo / LivePortrait): same job life-cycle as Flow — log, cancel, notify, review & approval. */
+export async function runLocalVideoJob(jobId: string) {
+  const job = byId<Row>("creative_job", jobId);
+  if (!job || job.status !== "queued") return;
+  const bizId = job.biz_id as string;
+  const log: Row[] = [];
+  const flush = logFlusher(bizId, jobId, log);
+  const ctrl = new AbortController();
+  running.set(jobId, ctrl);
+  update("creative_job", jobId, { status: "running", started_at: nowIso(), step: "Khởi động" });
+  emit(bizId, "creative.updated", { jobId, status: "running" });
+  const say = (text: string, kind: "text" | "tool" = "text") => { log.push({ at: nowIso(), kind, text }); flush(); };
+  try {
+    if (engineOf(job.tool) === "liveportrait") {
+      const res = await runPortrait({ job, log: say, signal: ctrl.signal });
+      flush(true);
+      finishMaterialJob(jobId, res);
+      notifyDesktop(`Ảnh cử động "${job.title}" đã xong`, `Clip ${Math.round(res.durationSec)} giây đã vào thư viện video.`);
+    } else {
+      const res = await runAutoVideo({ job, log: say, signal: ctrl.signal });
+      flush(true);
+      update("creative_job", jobId, { model: "moneyprinter+claude-cli" });
+      await completeVideoJob(jobId, res);
+    }
+  } catch (e) {
+    flush(true);
+    if (byId<Row>("creative_job", jobId)?.status === "cancelled") return;
+    const error = e instanceof Error ? e.message : String(e);
+    update("creative_job", jobId, { status: /NO_STOCK_KEY|NOT_INSTALLED|NO_IMAGE|NO_MATERIALS|NO_CLIPS/.test((e as any)?.code ?? "") ? "blocked" : "failed", error, step: null, ended_at: nowIso() });
+    emit(bizId, "creative.updated", { jobId, status: "failed" });
+    notifyDesktop(`Video "${job.title}" chưa tạo được`, error);
+  } finally {
+    running.delete(jobId);
+  }
 }
 
 export async function runVideoJob(jobId: string) {
@@ -251,6 +303,7 @@ export async function runVideoJob(jobId: string) {
       resultFile: join(workdir, "result.json"),
       timeoutMs: (fs.timeoutMin ?? tool.minutes + 30) * 60_000,
       mcpConfig: flowMcpConfig(rawDir),
+      env: { PATH: `${ensureVideoBins()}:${process.env.PATH ?? ""}` }, // taki-video-* of THIS repo
       allowedTools: [
         "mcp__flow", "Read", "Write", "Glob",
         "Bash(ffmpeg:*)", "Bash(ffprobe:*)", "Bash(taki-video-finish:*)", "Bash(taki-video-stt:*)",

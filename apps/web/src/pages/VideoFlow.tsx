@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Clapperboard, ExternalLink, Film, Globe, ImagePlus, Loader2, Play, Square, Trash2, UtensilsCrossed } from "lucide-react";
+import { Clapperboard, UserRound, Wand2, ExternalLink, Film, Globe, ImagePlus, Loader2, Play, Square, Trash2, UtensilsCrossed } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { timeAgo } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Loading, Modal, PageHeader, PlatformIcon, cx, inputCls, useToast } from "../components/ui";
 
-const TOOL_ICON: Record<string, any> = { "review-do-an-vat": UtensilsCrossed, "cooking-director": Clapperboard, cinematic: Film };
+const TOOL_ICON: Record<string, any> = { "review-do-an-vat": UtensilsCrossed, "cooking-director": Clapperboard, cinematic: Film, "auto-video": Wand2, portrait: UserRound };
 const STATUS: Record<string, [string, any]> = {
   queued: ["Chờ trình duyệt", "gray"], running: ["Đang sản xuất", "blue"], done: ["Xong, chờ duyệt", "green"],
   approved: ["Đã duyệt", "blue"], drafted: ["Đã lên nháp kênh", "green"],
@@ -26,7 +26,13 @@ export function VideoFlow() {
   const [pickBrowser, setPickBrowser] = useState(false);
   const toast = useToast();
 
-  const [form, setForm] = useState<any>({ tool: "review-do-an-vat", title: "", brand: "other", product: "", brief: "", durationSec: 48, veoModel: "Veo 3.1 - Fast", voice: "", hookTitle: "", cta: "", channels: ["tiktok"], images: [] as { path: string; role: string; name: string }[] });
+  const [form, setForm] = useState<any>({
+    tool: "review-do-an-vat", title: "", brand: "other", product: "", brief: "", durationSec: 48, veoModel: "Veo 3.1 - Fast", voice: "", hookTitle: "", cta: "", channels: ["tiktok"], images: [] as { path: string; role: string; name: string }[],
+    // local engines (Video tự động / Ảnh cử động)
+    video: { source: "flow", flowJobId: "", scriptReady: false, terms: "", voiceName: "vi-VN-HoaiMyNeural-Female", voiceRate: 1, bgm: "random", aspect: "9:16", clipDuration: 4, driving: "d12.mp4", drivingPath: "", drivingName: "", voiceText: "", seconds: 6, materials: [] as { path: string; name: string }[] },
+  });
+  const vai = useApi<any>("video-ai/status");
+  const setV = (p: any) => setForm((f: any) => ({ ...f, video: { ...f.video, ...p } }));
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const set = (p: any) => setForm((f: any) => ({ ...f, ...p }));
@@ -49,12 +55,26 @@ export function VideoFlow() {
     }
   };
 
+  const uploadFiles = async (files: FileList | null, accept: RegExp) => {
+    const out: { path: string; name: string }[] = [];
+    for (const f of Array.from(files ?? [])) {
+      if (!accept.test(f.name)) { toast(`${f.name}: định dạng không hỗ trợ`, "err"); continue; }
+      const data = await new Promise<string>((res) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.readAsDataURL(f); });
+      try { const r = await api.post("/v1/uploads", { name: f.name, data }); out.push({ path: r.path, name: f.name }); } catch (e: any) { toast(`${f.name}: ${e.message}`, "err"); }
+    }
+    return out;
+  };
+
   const start = async () => {
     setBusy(true);
     try {
-      const { images, ...rest } = form;
-      const j = await api.post("creative/jobs", { ...rest, durationSec: Number(form.durationSec) || undefined, images: images.map((i: any) => ({ path: i.path, role: i.role })), product: form.product || undefined, voice: form.voice || undefined, hookTitle: form.hookTitle || undefined, cta: form.cta || undefined });
-      toast("Đã đưa vào hàng đợi. Agent chạy ngầm trong Chrome Flow — Sếp sẽ nhận thông báo khi video xong.", "info");
+      const { images, video, ...rest } = form;
+      const v = engine === "moneyprinter"
+        ? { source: video.source, flowJobId: video.source === "flow" ? video.flowJobId || undefined : undefined, materials: video.source === "local" ? video.materials.map((m: any) => m.path) : undefined, scriptReady: video.scriptReady || undefined, terms: video.terms || undefined, voiceName: video.voiceName, voiceRate: Number(video.voiceRate), bgm: video.bgm, aspect: video.aspect, clipDuration: Number(video.clipDuration) }
+        : engine === "liveportrait" ? { driving: video.drivingPath ? undefined : video.driving, drivingPath: video.drivingPath || undefined, voiceText: video.voiceText || undefined, voiceName: video.voiceName, seconds: Number(video.seconds) } : undefined;
+      const brief = form.brief.trim().length >= 5 ? form.brief : `${form.title} — ${tool?.label ?? ""}`;
+      const j = await api.post("creative/jobs", { ...rest, brief, video: v, durationSec: Number(form.durationSec) || undefined, images: images.map((i: any) => ({ path: i.path, role: i.role })), product: form.product || undefined, voice: form.voice || undefined, hookTitle: form.hookTitle || undefined, cta: form.cta || undefined });
+      toast(engine === "flow" ? "Đã đưa vào hàng đợi. Agent chạy ngầm trong Chrome Flow — Sếp sẽ nhận thông báo khi video xong." : "Đã đưa vào hàng đợi — chạy trên máy Sếp, có thông báo khi xong.", "info");
       setConfirm(false);
       setSelected(j.id);
       jobs.reload();
@@ -62,16 +82,19 @@ export function VideoFlow() {
   };
 
   const tool = tools.data?.find((t) => t.key === form.tool);
+  const engine: "flow" | "moneyprinter" | "liveportrait" = tool?.engine ?? "flow";
+  const flowDone = (jobs.data ?? []).filter((j: any) => !["auto-video", "portrait"].includes(j.tool) && ["done", "approved", "drafted"].includes(j.status));
   const hasBrowser = !!settings.data?.chromeProfileDir;
   const fbAccount = fb.data?.accounts?.includes(settings.data?.chromeProfileEmail) ? settings.data.chromeProfileEmail : fb.data?.accounts?.[0];
   const showFlow = async (state: "normal" | "parked") => { try { await api.post("creative/flow-browser/window", { state }); } catch (e: any) { toast(e.message, "err"); } };
   const login = async () => { try { await api.post("creative/flow-browser/login"); toast("Đã mở Chrome Flow ở trang đăng nhập Google — Sếp đăng nhập 1 lần", "info"); fb.reload(); } catch (e: any) { toast(e.message, "err"); } };
-  const ready = hasBrowser && sys?.llm?.provider === "claude_cli";
+  const cliOk = sys?.llm?.provider === "claude_cli";
+  const ready = engine === "flow" ? hasBrowser && cliOk : engine === "moneyprinter" ? cliOk && !!vai.data?.moneyprinter?.installed : !!vai.data?.liveportrait?.installed;
   const current = selected ?? jobs.data?.[0]?.id ?? null;
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Sản xuất video Flow" subtitle="Creative Agent chạy skill Flow của phòng MKT ngay trong Tool Flow của skill (Chrome Flow chạy ngầm): tạo video, ghép + chèn phụ đề, rồi gửi duyệt và đăng nháp lên kênh." />
+      <PageHeader title="Sản xuất video" subtitle="Google Flow (AI tạo cảnh, chạy trong Tool của skill) · Video tự động từ cảnh có sẵn + giọng đọc Việt · Ảnh chân dung cử động — xong thì Review, gửi duyệt và đăng nháp lên kênh." />
 
       <div className={cx("flex flex-wrap items-center gap-3 rounded-2xl border p-4 text-sm", ready ? "border-emerald-500/30 bg-emerald-500/5" : "border-amber-500/30 bg-amber-500/10")}>
         <Globe className="h-5 w-5" />
@@ -90,10 +113,10 @@ export function VideoFlow() {
               {(tools.data ?? []).map((t) => {
                 const Icon = TOOL_ICON[t.key] ?? Film;
                 return (
-                  <button key={t.key} onClick={() => set({ tool: t.key, durationSec: t.key === "cinematic" ? 60 : t.key === "cooking-director" ? 80 : 48 })} className={cx("rounded-xl border p-3 text-left transition", form.tool === t.key ? "border-blue-500 bg-blue-500/5 ring-2 ring-blue-500/15" : "border-line hover:bg-soft")}>
+                  <button key={t.key} onClick={() => set({ tool: t.key, durationSec: t.key === "cinematic" ? 60 : t.key === "cooking-director" ? 80 : t.key === "auto-video" ? 30 : 48 })} className={cx("rounded-xl border p-3 text-left transition", form.tool === t.key ? "border-blue-500 bg-blue-500/5 ring-2 ring-blue-500/15" : "border-line hover:bg-soft")}>
                     <Icon className="h-5 w-5 text-blue-600" />
                     <p className="mt-2 text-sm font-semibold">{t.label}</p>
-                    <p className="text-[11px] text-muted">~{t.minutes} phút · skill v{t.skillVersion ?? "?"}</p>
+                    <p className="text-[11px] text-muted">~{t.minutes} phút · {t.engine && t.engine !== "flow" ? "chạy trên máy, không tốn credit" : `Google Flow · skill v${t.skillVersion ?? "?"}`}</p>
                   </button>
                 );
               })}
@@ -101,7 +124,9 @@ export function VideoFlow() {
             {tool && (
               <div className="space-y-1 rounded-xl bg-soft p-3 text-xs text-muted">
                 <p>Cần: {tool.hint}</p>
-                <p>Tool Flow: {tool.toolUrl ? <a href={tool.toolUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600">{tool.label}<ExternalLink className="h-3 w-3" /></a> : <span>agent tự tìm "{tool.label}" trong mục Tools của Flow</span>}</p>
+                {engine === "flow"
+                  ? <p>Tool Flow: {tool.toolUrl ? <a href={tool.toolUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600">{tool.label}<ExternalLink className="h-3 w-3" /></a> : <span>agent tự tìm "{tool.label}" trong mục Tools của Flow</span>}</p>
+                  : <p>{engine === "moneyprinter" ? "MoneyPrinterTurbo (MIT) + Claude CLI viết lời + Edge TTS giọng Việt" : "LivePortrait (MIT, dò mặt MediaPipe — dùng thương mại được)"} · chạy trên máy Sếp{vai.data && !(engine === "moneyprinter" ? vai.data.moneyprinter.installed : vai.data.liveportrait.installed) ? " · CHƯA CÀI — chạy pnpm video-ai:install" : ""}</p>}
               </div>
             )}
             <div className="grid gap-3 sm:grid-cols-2">
@@ -110,11 +135,67 @@ export function VideoFlow() {
                 <select className={inputCls} value={form.brand} onChange={(e) => set({ brand: e.target.value })}><option value="other">Kênh khác / khách hàng</option><option value="taki">TAKI Academy (áp DNA)</option></select>
               </Field>
               <Field label="Sản phẩm"><input className={inputCls} value={form.product} onChange={(e) => set({ product: e.target.value })} /></Field>
-              <Field label="Thời lượng (giây)" hint={`${Math.max(1, Math.ceil((Number(form.durationSec) || 8) / 8))} cảnh × 8 giây`}><input type="number" className={inputCls} value={form.durationSec} onChange={(e) => set({ durationSec: e.target.value })} /></Field>
-              <Field label="Model Veo (nếu Tool cho chọn)" hint="Lite rẻ nhất · Quality đẹp nhất, tốn credit hơn">
+              {engine !== "liveportrait" && <Field label="Thời lượng (giây)" hint={engine === "flow" ? `${Math.max(1, Math.ceil((Number(form.durationSec) || 8) / 8))} cảnh × 8 giây` : `~${Math.round((Number(form.durationSec) || 30) * 3)} từ lời đọc`}><input type="number" className={inputCls} value={form.durationSec} onChange={(e) => set({ durationSec: e.target.value })} /></Field>}
+              {engine === "flow" && <Field label="Model Veo (nếu Tool cho chọn)" hint="Lite rẻ nhất · Quality đẹp nhất, tốn credit hơn">
                 <select className={inputCls} value={form.veoModel} onChange={(e) => set({ veoModel: e.target.value })}>{["Veo 3.1 - Lite", "Veo 3.1 - Fast", "Veo 3.1 - Quality"].map((m) => <option key={m} value={m}>{m}</option>)}</select>
-              </Field>
+              </Field>}
             </div>
+            {engine === "moneyprinter" && (
+              <div className="space-y-3 rounded-xl border border-line p-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Nguồn cảnh quay">
+                    <select className={inputCls} value={form.video.source} onChange={(e) => setV({ source: e.target.value })}>
+                      <option value="flow">Clip từ video Flow đã làm</option>
+                      <option value="local">Clip / ảnh của Sếp (tải lên)</option>
+                      <option value="pexels" disabled={!vai.data?.moneyprinter?.pexels?.length}>Kho Pexels (miễn phí){vai.data?.moneyprinter?.pexels?.length ? "" : " — cần nhập khóa"}</option>
+                      <option value="pixabay" disabled={!vai.data?.moneyprinter?.pixabay?.length}>Kho Pixabay (miễn phí){vai.data?.moneyprinter?.pixabay?.length ? "" : " — cần nhập khóa"}</option>
+                    </select>
+                  </Field>
+                  {form.video.source === "flow" && (
+                    <Field label="Video Flow lấy clip">
+                      <select className={inputCls} value={form.video.flowJobId} onChange={(e) => setV({ flowJobId: e.target.value })}>
+                        <option value="">— chọn —</option>
+                        {flowDone.map((j: any) => <option key={j.id} value={j.id}>{j.title} · {timeAgo(j.created_at)}</option>)}
+                      </select>
+                    </Field>
+                  )}
+                  <Field label="Giọng đọc">
+                    <select className={inputCls} value={form.video.voiceName} onChange={(e) => setV({ voiceName: e.target.value })}>{(vai.data?.tts?.voices ?? []).map((v: any) => <option key={v.id} value={v.id}>{v.label}</option>)}</select>
+                  </Field>
+                  <Field label={`Tốc độ đọc ×${form.video.voiceRate}`}><input type="range" min={0.8} max={1.3} step={0.05} value={form.video.voiceRate} onChange={(e) => setV({ voiceRate: e.target.value })} className="w-full" /></Field>
+                  <Field label="Khung hình"><select className={inputCls} value={form.video.aspect} onChange={(e) => setV({ aspect: e.target.value })}><option value="9:16">Dọc 9:16 (TikTok/Reels)</option><option value="16:9">Ngang 16:9 (YouTube)</option><option value="1:1">Vuông 1:1</option></select></Field>
+                  <Field label="Nhạc nền"><select className={inputCls} value={form.video.bgm} onChange={(e) => setV({ bgm: e.target.value })}><option value="random">Nhạc nền ngẫu nhiên</option><option value="none">Không nhạc</option></select></Field>
+                </div>
+                {form.video.source === "local" && (
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    {form.video.materials.map((m: any, i: number) => <span key={m.path} className="flex items-center gap-1 rounded-lg border border-line px-2 py-1">{m.name}<button onClick={() => setV({ materials: form.video.materials.filter((_: any, j: number) => j !== i) })}><Trash2 className="h-3 w-3 text-muted" /></button></span>)}
+                    <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-line px-3 py-1 text-muted hover:bg-soft"><Film className="h-3.5 w-3.5" />Thêm clip/ảnh<input type="file" accept="video/*,image/*" multiple className="hidden" onChange={async (e) => { const up = await uploadFiles(e.target.files, /\.(mp4|mov|m4v|webm|png|jpe?g|webp)$/i); setV({ materials: [...form.video.materials, ...up] }); }} /></label>
+                  </div>
+                )}
+                <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={form.video.scriptReady} onChange={(e) => setV({ scriptReady: e.target.checked })} />Ô nội dung bên dưới là <b>lời đọc có sẵn</b> (không để AI viết lại)</label>
+                {form.video.scriptReady && <input className={inputCls} placeholder="Từ khóa cảnh quay tiếng Anh, cách nhau dấu phẩy (để trống = AI tự đề xuất)" value={form.video.terms} onChange={(e) => setV({ terms: e.target.value })} />}
+              </div>
+            )}
+            {engine === "liveportrait" && (
+              <div className="space-y-3 rounded-xl border border-line p-3">
+                <p className="text-xs text-muted">Thêm <b>1 ảnh chân dung rõ mặt</b> ở mục ảnh bên dưới. Ảnh sẽ cử động theo biểu cảm của video mẫu.</p>
+                <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
+                  <div className="space-y-2">
+                    <Field label="Video biểu cảm mẫu">
+                      <select className={inputCls} value={form.video.drivingPath ? "__own" : form.video.driving} onChange={(e) => e.target.value !== "__own" && setV({ driving: e.target.value, drivingPath: "", drivingName: "" })}>
+                        {(vai.data?.liveportrait?.presets ?? []).map((d: string) => <option key={d} value={d}>Mẫu {d.replace(".mp4", "")}</option>)}
+                        {form.video.drivingPath && <option value="__own">Video của Sếp: {form.video.drivingName}</option>}
+                      </select>
+                    </Field>
+                    <label className="flex w-fit cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-line px-3 py-1 text-xs text-muted hover:bg-soft"><Film className="h-3.5 w-3.5" />Dùng video biểu cảm của Sếp<input type="file" accept="video/*" className="hidden" onChange={async (e) => { const [up] = await uploadFiles(e.target.files, /\.(mp4|mov|m4v|webm)$/i); if (up) setV({ drivingPath: up.path, drivingName: up.name }); }} /></label>
+                    <Field label={`Độ dài clip: ${form.video.seconds} giây`} hint="M2 cần khoảng 1 phút cho mỗi giây video"><input type="range" min={3} max={15} value={form.video.seconds} onChange={(e) => setV({ seconds: e.target.value })} className="w-full" /></Field>
+                  </div>
+                  {!form.video.drivingPath && <video key={form.video.driving} src={`/v1/video-ai/driving/${form.video.driving}`} muted autoPlay loop playsInline className="h-full max-h-56 w-full rounded-xl bg-black object-contain" />}
+                </div>
+                <Field label="Lồng giọng đọc (tuỳ chọn)" hint="Giọng Edge TTS; clip kéo dài theo lời đọc"><textarea rows={2} className={inputCls} value={form.video.voiceText} onChange={(e) => setV({ voiceText: e.target.value })} placeholder="Chào cả nhà, hôm nay chị review…" /></Field>
+                {form.video.voiceText && <select className={inputCls} value={form.video.voiceName} onChange={(e) => setV({ voiceName: e.target.value })}>{(vai.data?.tts?.voices ?? []).map((v: any) => <option key={v.id} value={v.id}>{v.label}</option>)}</select>}
+              </div>
+            )}
             <Field label="Thông tin sản phẩm / chủ đề / kịch bản"><textarea rows={6} className={inputCls} value={form.brief} onChange={(e) => set({ brief: e.target.value })} placeholder="Giá, vị, điểm nổi bật, ưu đãi, link affiliate… hoặc chủ đề phim + thông điệp" /></Field>
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="Giọng"><input className={inputCls} value={form.voice} onChange={(e) => set({ voice: e.target.value })} placeholder="Nữ, miền Bắc, xưng chị" /></Field>
@@ -142,7 +223,7 @@ export function VideoFlow() {
                 <button key={c} onClick={() => set({ channels: form.channels.includes(c) ? form.channels.filter((x: string) => x !== c) : [...form.channels, c] })} className={cx("flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs", form.channels.includes(c) ? "border-blue-500 bg-blue-500/10" : "border-line")}><PlatformIcon p={c} size={14} />{c}</button>
               ))}</div>
             </div>
-            <div className="flex justify-end"><Button variant="primary" icon={Play} disabled={!ready || !form.title || form.brief.length < 5 || !form.channels.length} onClick={() => setConfirm(true)}>Bắt đầu sản xuất</Button></div>
+            <div className="flex justify-end"><Button variant="primary" icon={Play} disabled={!ready || !form.title || (engine !== "liveportrait" && form.brief.length < 5) || !form.channels.length || (engine === "liveportrait" && !form.images.length) || (engine === "moneyprinter" && form.video.source === "flow" && !form.video.flowJobId) || (engine === "moneyprinter" && form.video.source === "local" && !form.video.materials.length)} onClick={() => setConfirm(true)}>Bắt đầu sản xuất</Button></div>
           </div>
         </Card>
 
@@ -163,14 +244,24 @@ export function VideoFlow() {
         </div>
       </div>
 
-      <Modal open={confirm} onClose={() => setConfirm(false)} title="Xác nhận sản xuất video trên Flow" footer={<><Button variant="ghost" onClick={() => setConfirm(false)}>Hủy</Button><Button variant="primary" loading={busy} onClick={start}>Bắt đầu</Button></>}>
+      <VideoAiTools status={vai.data} onChanged={vai.reload} upload={uploadFiles} />
+
+      <Modal open={confirm} onClose={() => setConfirm(false)} title={engine === "flow" ? "Xác nhận sản xuất video trên Flow" : "Xác nhận sản xuất video"} footer={<><Button variant="ghost" onClick={() => setConfirm(false)}>Hủy</Button><Button variant="primary" loading={busy} onClick={start}>Bắt đầu</Button></>}>
         <div className="space-y-2 text-sm">
           <p><b>{tool?.label}</b> · {form.title}</p>
+          {engine !== "flow" ? (
+            <ul className="list-disc space-y-1 pl-5 text-muted">
+              <li>Chạy trên máy Sếp, <b>không tốn tín dụng Flow</b>, không cần bấm gì (khoảng {tool?.minutes} phút{engine === "liveportrait" ? `; ${form.video.seconds} giây clip` : ""}). Có thông báo khi xong.</li>
+              {engine === "moneyprinter" ? <li>Claude CLI viết lời đọc{form.video.scriptReady ? " (giữ nguyên lời Sếp)" : ""}, MoneyPrinterTurbo ghép cảnh + giọng Việt + phụ đề → Review → hộp Duyệt → đăng bản nháp lên {form.channels.join(", ")} sau khi duyệt.</li>
+                : <li>Clip cử động vào thư viện video (dùng làm đoạn mở đầu / chèn vào video khác), không tự đăng.</li>}
+            </ul>
+          ) : (
           <ul className="list-disc space-y-1 pl-5 text-muted">
             <li>Hệ thống <b>tự chạy ngầm, không cần Sếp bấm gì</b>: AI mở Tool <b>{tool?.label}</b> trong Chrome Flow (tài khoản {settings.data?.chromeProfileEmail ?? settings.data?.chromeProfileName ?? "đã chọn"}), chạy đủ các bước Cấu hình → Khung chủ → Kịch bản → Storyboard → Sản xuất, tải clip, ghép + chèn phụ đề (khoảng {tool?.minutes ?? 40} phút). Chỉ có thông báo khi video đã xong.</li>
             <li>Mỗi lần tạo cảnh tốn tín dụng Google Flow (tối đa 3 lần làm lại mỗi cảnh).</li>
             <li>Video thành phẩm vào hộp Duyệt; chỉ sau khi duyệt mới đăng <b>bản nháp</b> lên {form.channels.join(", ")}.</li>
           </ul>
+          )}
         </div>
       </Modal>
       <BrowserPicker open={pickBrowser} current={settings.data} onClose={() => setPickBrowser(false)} onSaved={() => { setPickBrowser(false); settings.reload(); }} />
@@ -187,7 +278,7 @@ function JobDetail({ id }: { id: string }) {
   return (
     <Card title={j.title} action={["queued", "running"].includes(j.status) && <Button size="sm" variant="danger" icon={Square} onClick={cancel}>Dừng</Button>}>
       <div className="space-y-3 text-sm">
-        <p className="flex flex-wrap items-center gap-2"><Badge tone={STATUS[j.status]?.[1]}>{STATUS[j.status]?.[0]}</Badge>{elapsed != null && <span className="text-xs text-muted">{elapsed} phút</span>}{j.model && <span className="text-xs text-muted">· {j.model}</span>}</p>
+        <p className="flex flex-wrap items-center gap-2"><Badge tone={STATUS[j.status]?.[1]}>{j.tool === "portrait" && j.status === "done" ? "Xong · trong thư viện video" : STATUS[j.status]?.[0]}</Badge>{elapsed != null && <span className="text-xs text-muted">{elapsed} phút</span>}{j.model && <span className="text-xs text-muted">· {j.model}</span>}</p>
         {j.error && <p className="rounded-xl bg-rose-500/10 p-3 text-rose-700 dark:text-rose-300">{j.error}</p>}
         {j.asset && <video src={`/v1/media/${j.asset.id}`} controls className="mx-auto max-h-[480px] rounded-xl bg-black" />}
         {j.asset && <p className="text-xs text-muted">{j.asset.duration?.toFixed(1)}s · {j.asset.width}x{j.asset.height} · <a className="text-blue-600" href={`/v1/media/${j.asset.id}?download=1`}>Tải MP4</a></p>}
@@ -272,5 +363,63 @@ function BrowserPicker({ open, current, onClose, onSaved }: { open: boolean; cur
         <p className="rounded-xl bg-soft p-3 text-xs text-muted">Bấm <b>Chọn profile này</b>: vài giây sau Chrome Flow có sẵn đăng nhập Google của profile (không cần bấm gì). Nếu Google không nhận bản sao đăng nhập, Chrome Flow tự mở trang đăng nhập — Sếp đăng nhập 1 lần, các lần sau chạy ngầm hoàn toàn.</p>
       </div>
     </Modal>
+  );
+}
+
+/** Local video AI: status of each tool, stock-footage keys, voice-over test, subtitles from a video. */
+function VideoAiTools({ status, onChanged, upload }: { status: any; onChanged: () => void; upload: (f: FileList | null, accept: RegExp) => Promise<{ path: string; name: string }[]> }) {
+  const toast = useToast();
+  const [keys, setKeys] = useState({ pexels: "", pixabay: "" });
+  const [tts, setTts] = useState({ text: "Chào cả nhà, đây là giọng đọc thử của Agentic AI.", voice: "vi-VN-HoaiMyNeural-Female", url: "", busy: false });
+  const [stt, setStt] = useState<{ busy: boolean; text?: string; srt?: string; name?: string }>({ busy: false });
+  if (!status) return null;
+  const Row = ({ ok, name, desc }: { ok: boolean; name: string; desc: string }) => (
+    <div className="flex items-start gap-2 rounded-xl bg-soft p-2.5"><span className={cx("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", ok ? "bg-emerald-500" : "bg-amber-500")} /><div><p className="text-sm font-medium">{name}</p><p className="text-[11px] text-muted">{desc}</p></div></div>
+  );
+  const saveKeys = async () => {
+    try { await api.put("video-ai/stock-keys", { ...(keys.pexels ? { pexels: keys.pexels } : {}), ...(keys.pixabay ? { pixabay: keys.pixabay } : {}) }); setKeys({ pexels: "", pixabay: "" }); toast("Đã lưu khóa kho cảnh"); onChanged(); } catch (e: any) { toast(e.message, "err"); }
+  };
+  const speak = async () => {
+    setTts((t) => ({ ...t, busy: true }));
+    try { const r = await api.post("video-ai/tts", { text: tts.text, voice: tts.voice }); setTts((t) => ({ ...t, url: `/v1/video-ai/file?path=${encodeURIComponent(r.mp3)}`, busy: false })); } catch (e: any) { toast(e.message, "err"); setTts((t) => ({ ...t, busy: false })); }
+  };
+  const transcribeFile = async (files: FileList | null) => {
+    const [up] = await upload(files, /\.(mp4|mov|m4v|webm|mp3|wav|m4a)$/i);
+    if (!up) return;
+    setStt({ busy: true, name: up.name });
+    try { const r = await api.post("video-ai/transcribe", { path: up.path }); setStt({ busy: false, text: r.text, srt: r.srt, name: up.name }); } catch (e: any) { toast(e.message, "err"); setStt({ busy: false }); }
+  };
+  return (
+    <Card title="Công cụ video AI trên máy">
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="space-y-2">
+          <Row ok={status.moneyprinter.installed} name="MoneyPrinterTurbo" desc={`Video tự động từ cảnh có sẵn · kho Pexels: ${status.moneyprinter.pexels.length ? status.moneyprinter.pexels.join(", ") : "chưa có khóa"}`} />
+          <Row ok={status.liveportrait.installed && status.liveportrait.mediapipe} name="LivePortrait + MediaPipe" desc={`Ảnh chân dung cử động · ${status.liveportrait.presets.length} video biểu cảm mẫu · dò mặt MediaPipe (dùng thương mại được)`} />
+          <Row ok={status.whisper.installed} name="faster-whisper" desc="Nhận dạng lời thoại tiếng Việt, xuất phụ đề .srt" />
+          <Row ok={status.tts.installed} name="Edge TTS (thay fish-speech)" desc="Giọng Việt Hoài My / Nam Minh, dùng thương mại được" />
+          <p className="text-[11px] text-muted">fish-speech không cài: {status.fishSpeech.note}{status.freeDiskGB != null ? ` · Đĩa còn ${status.freeDiskGB} GB.` : ""}</p>
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-semibold">Khóa kho cảnh quay (miễn phí)</p>
+          <p className="text-[11px] text-muted">Tạo khóa tại pexels.com/api hoặc pixabay.com/api/docs rồi dán vào đây. Khóa chỉ lưu trên máy này.</p>
+          <input type="password" className={inputCls} placeholder={status.moneyprinter.pexels.length ? `Pexels: ${status.moneyprinter.pexels[0]} (dán khóa mới để thay)` : "Khóa Pexels"} value={keys.pexels} onChange={(e) => setKeys({ ...keys, pexels: e.target.value })} />
+          <input type="password" className={inputCls} placeholder={status.moneyprinter.pixabay.length ? `Pixabay: ${status.moneyprinter.pixabay[0]}` : "Khóa Pixabay (tuỳ chọn)"} value={keys.pixabay} onChange={(e) => setKeys({ ...keys, pixabay: e.target.value })} />
+          <Button size="sm" disabled={!keys.pexels && !keys.pixabay} onClick={saveKeys}>Lưu khóa</Button>
+        </div>
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <p className="text-sm font-semibold">Thử giọng đọc</p>
+            <textarea rows={2} className={inputCls} value={tts.text} onChange={(e) => setTts({ ...tts, text: e.target.value })} />
+            <div className="flex gap-2"><select className={cx(inputCls, "min-w-0 flex-1")} value={tts.voice} onChange={(e) => setTts({ ...tts, voice: e.target.value })}>{status.tts.voices.map((v: any) => <option key={v.id} value={v.id}>{v.label}</option>)}</select><Button size="sm" loading={tts.busy} onClick={speak}>Đọc</Button></div>
+            {tts.url && <audio src={tts.url} controls autoPlay className="w-full" />}
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm font-semibold">Tạo phụ đề từ video</p>
+            <label className={cx("flex w-fit cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-line px-3 py-1.5 text-xs text-muted hover:bg-soft", stt.busy && "pointer-events-none opacity-60")}>{stt.busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Film className="h-3.5 w-3.5" />}{stt.busy ? `Đang nghe ${stt.name}…` : "Chọn video / âm thanh"}<input type="file" accept="video/*,audio/*" className="hidden" onChange={(e) => transcribeFile(e.target.files)} /></label>
+            {stt.text && <div className="rounded-xl bg-soft p-2 text-xs"><p className="line-clamp-4">{stt.text}</p><a className="text-blue-600" href={`/v1/video-ai/file?path=${encodeURIComponent(stt.srt!)}&download=1`}>Tải phụ đề .srt</a></div>}
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }

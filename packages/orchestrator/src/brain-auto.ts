@@ -394,8 +394,9 @@ export function archiveVideo(jobId: string) {
   const date = vnDate(new Date(j.ended_at ?? j.updated_at));
   const a = j.asset_id ? byId<Row>("creative_asset", j.asset_id) : null;
   const r = (j.result ?? {}) as Row;
-  upsertById(v, "creative_job", j.id, `${F.video}/Video Flow`, `${date} ${j.title}`, { type: "video", agent: "creative", date, tool: j.tool }, [
-    `${agentLink("creative")} · [[${date}]] · công cụ Flow: ${j.tool}`,
+  const sub = j.tool === "auto-video" ? "Video tự động" : j.tool === "portrait" ? "Ảnh cử động" : "Video Flow";
+  upsertById(v, "creative_job", j.id, `${F.video}/${sub}`, `${date} ${j.title}`, { type: "video", agent: "creative", date, tool: j.tool }, [
+    `${agentLink("creative")} · [[${date}]] · công cụ: ${j.tool === "auto-video" ? "Video tự động (MoneyPrinterTurbo)" : j.tool === "portrait" ? "Ảnh cử động (LivePortrait)" : `Google Flow · ${j.tool}`}`,
     a ? `**File:** \`${a.path}\` · ${Number(a.duration ?? 0).toFixed(1)}s · ${a.width}x${a.height}` : "", "",
     r.caption ? `## Caption\n${r.caption}` : "",
     r.script?.length ? `## Lời thoại\n${(r.script as Row[]).map((s) => `${s.canh}. ${s.loi_thoai}`).join("\n")}` : "",

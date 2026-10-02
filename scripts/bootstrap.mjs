@@ -2,7 +2,8 @@
 // Cài TAKI Agentic AI trên máy mới — chạy 1 lần sau khi clone:  node scripts/bootstrap.mjs   (hoặc: pnpm bootstrap)
 // Idempotent: chạy lại an toàn, không ghi đè .env / database / skill đã có.
 //   --no-zlcrm         bỏ qua cài ZL-CRM (Zalo)
-//   --no-video         bỏ qua công cụ hậu kỳ video Flow (Python)
+//   --no-video         bỏ qua công cụ hậu kỳ video Flow (Python) + video AI
+//   --no-video-ai      bỏ qua công cụ video AI (MoneyPrinterTurbo, LivePortrait) — nặng ~3 GB
 //   --no-skills-home   không chép skill vào ~/.claude (chỉ dùng bản trong repo)
 //   --force-skills     ghi đè skill trong ~/.claude bằng bản trong repo
 import { execFileSync, spawnSync } from "node:child_process";
@@ -102,6 +103,16 @@ if (!args.has("--no-video")) {
       ok(`Lệnh taki-video-finish / taki-video-stt / taki-flow-save trong ${bin}`);
       if (!(process.env.PATH ?? "").split(":").includes(bin)) notes.push(`Thêm ${bin} vào PATH (vd: echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc).`);
     }
+  }
+}
+
+// 5b) Công cụ video AI chạy trên máy (MoneyPrinterTurbo, LivePortrait + MediaPipe, faster-whisper) -------------------
+if (!args.has("--no-video") && !args.has("--no-video-ai")) {
+  step("Công cụ video AI (video tự động, ảnh cử động) — có thể mất 10-20 phút lần đầu");
+  if (!has("uv")) { warn("Chưa có uv — bỏ qua. Cài: brew install uv rồi chạy: pnpm video-ai:install"); notes.push("Cài công cụ video AI: brew install uv && pnpm video-ai:install"); }
+  else {
+    try { run("node", ["scripts/install-video-ai.mjs"]); ok("Video AI sẵn sàng"); }
+    catch { warn("Cài video AI chưa xong — chạy lại: pnpm video-ai:install"); notes.push("Chạy lại: pnpm video-ai:install"); }
   }
 }
 

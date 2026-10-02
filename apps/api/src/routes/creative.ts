@@ -5,13 +5,43 @@ import { z } from "zod";
 import { audit, bizSettings, byId, defaultBizId, q, update, type Row } from "@dotaka/db";
 import {
   FLOW_TOOLS, FLOW_URL, UPLOAD_DIR, cancelVideoJob, connectFlowProfile, flowBrowserStatus, flowSettings, listChromeProfiles, openFlowLogin, openInProfile,
-  profileAvatarPath, setWindowState, startVideoJob, toolUrlFor,
+  profileAvatarPath, setStockKeys, setWindowState, startVideoJob, toolUrlFor, transcribe, videoAiFile, videoAiStatus, voiceOver, drivingPreset,
 } from "@dotaka/orchestrator";
 import { AppError, uuidv7 } from "@dotaka/shared";
 import { routes } from "../http.ts";
 
 export function creativeRoutes(app: FastifyInstance) {
   const r = routes(app);
+
+  // ---- Local video AI (MoneyPrinterTurbo, LivePortrait, faster-whisper, Edge TTS) ----
+  r.get("/v1/video-ai/status", () => videoAiStatus());
+  r.put("/v1/video-ai/stock-keys", (c) => {
+    if (c.req.headers["x-taki-actor"]) throw new AppError("FORBIDDEN", "Chỉ Sếp nhập khóa trên giao diện", 403);
+    const p = z.object({ pexels: z.string().max(200).optional(), pixabay: z.string().max(200).optional() }).parse(c.body);
+    const split = (v?: string) => (v === undefined ? undefined : v.split(/[\s,]+/).filter(Boolean));
+    const out = setStockKeys({ pexels: split(p.pexels), pixabay: split(p.pixabay) });
+    audit(c.bizId, c.actor, "video_ai.stock_keys_changed", undefined, { pexels: out.pexels.length, pixabay: out.pixabay.length });
+    return out;
+  });
+  r.post("/v1/video-ai/tts", async ({ body }) => {
+    const p = z.object({ text: z.string().min(1).max(5000), voice: z.string().max(60).optional(), rate: z.number().min(0.6).max(1.6).optional() }).parse(body);
+    return voiceOver(p);
+  });
+  r.post("/v1/video-ai/transcribe", async ({ body }) => {
+    const p = z.object({ path: z.string().min(3), lang: z.string().max(8).optional() }).parse(body);
+    if (!p.path.startsWith(UPLOAD_DIR) && !p.path.includes("/data/creative/")) throw new AppError("FORBIDDEN", "Chỉ nhận tệp đã tải lên hệ thống");
+    return transcribe(p.path, p.lang ?? "vi");
+  });
+  app.get("/v1/video-ai/file", async (req, reply) => {
+    const abs = videoAiFile(String((req.query as Row).path ?? ""));
+    reply.type(abs.endsWith(".mp3") ? "audio/mpeg" : abs.endsWith(".srt") ? "text/plain; charset=utf-8" : "application/octet-stream");
+    if ((req.query as Row).download) reply.header("content-disposition", `attachment; filename="${basename(abs)}"`);
+    return reply.send(createReadStream(abs));
+  });
+  app.get("/v1/video-ai/driving/:name", async (req, reply) => {
+    reply.type("video/mp4").header("cache-control", "max-age=3600");
+    return reply.send(createReadStream(drivingPreset(String((req.params as Row).name))));
+  });
 
   r.get("/v1/creative/tools", ({ bizId }) => Object.entries(FLOW_TOOLS).map(([key, t]) => ({
     key, ...t, toolUrl: toolUrlFor(flowSettings(bizId), key), skillVersion: q.get<Row>("SELECT version FROM skill WHERE biz_id = ? AND key = ?", bizId, t.skill)?.version ?? null,
@@ -78,10 +108,10 @@ export function creativeRoutes(app: FastifyInstance) {
   r.post("/v1/creative/jobs/:id/cancel", ({ bizId, params, actor }) => cancelVideoJob(bizId, params.id, actor));
 
   // Image upload (base64 JSON keeps the stack dependency-free); files live in data/uploads.
-  app.post("/v1/uploads", { bodyLimit: 30 * 1024 * 1024 }, async (req) => {
+  app.post("/v1/uploads", { bodyLimit: 90 * 1024 * 1024 }, async (req) => {
     const p = z.object({ name: z.string().min(1).max(200), data: z.string().min(10) }).parse(req.body);
     const safe = basename(p.name).replace(/[^\w.\-]+/g, "_").slice(-80);
-    if (!/\.(png|jpe?g|webp|heic)$/i.test(safe)) throw new AppError("BAD_TYPE", "Chỉ nhận ảnh png/jpg/webp/heic");
+    if (!/\.(png|jpe?g|webp|heic|mp4|mov|m4v|webm|mp3|wav|m4a)$/i.test(safe)) throw new AppError("BAD_TYPE", "Chỉ nhận ảnh (png/jpg/webp/heic), video (mp4/mov/webm) hoặc âm thanh (mp3/wav/m4a)");
     mkdirSync(UPLOAD_DIR, { recursive: true });
     const path = join(UPLOAD_DIR, `${uuidv7().slice(-12)}_${safe}`);
     writeFileSync(path, Buffer.from(p.data.replace(/^data:[^;]+;base64,/, ""), "base64"));

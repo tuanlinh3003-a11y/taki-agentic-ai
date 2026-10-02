@@ -25,3 +25,6 @@ __pycache__/
 *.log
 .vscode/*
 !.vscode/extensions.json
+
+# Video AI tools (cloned + weights by scripts/install-video-ai.mjs; patches live in services/video-ai-patches)
+services/video-ai/

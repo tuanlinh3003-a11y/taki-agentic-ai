@@ -235,6 +235,8 @@ export interface TerminalRunOptions {
   /** MCP servers for the run (e.g. Playwright attached to Chrome Flow). Given → plain headless `claude -p`
    *  (MCP tools are allowed by --allowedTools; no Claude in Chrome, no pseudo-terminal needed). */
   mcpConfig?: object;
+  /** Extra environment for the agent process (e.g. PATH with this repo's video commands first). */
+  env?: Record<string, string>;
 }
 
 /** Mark a folder as trusted for Claude Code (the CEO's own project data folder) so no dialog appears. */
@@ -273,7 +275,7 @@ export async function runClaudeInTerminal(o: TerminalRunOptions): Promise<unknow
   let bin = BIN;
   try { bin = execFileSync("/bin/sh", ["-lc", `command -v '${BIN.replace(/'/g, "")}'`], { encoding: "utf8", env: childEnv() }).trim() || BIN; } catch { /* keep BIN */ }
   const sessionId = randomUUID();
-  const env: NodeJS.ProcessEnv = { ...childEnv(), TERM: "xterm-256color", COLUMNS: "160", LINES: "50", CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1" };
+  const env: NodeJS.ProcessEnv = { ...childEnv(), ...(o.env ?? {}), TERM: "xterm-256color", COLUMNS: "160", LINES: "50", CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1" };
   delete env.CLAUDE_CODE_CHILD_SESSION; delete env.CLAUDE_CODE_ENTRYPOINT; delete env.CLAUDE_CODE_SSE_PORT;
   let child: ChildProcess;
   if (o.mcpConfig) {

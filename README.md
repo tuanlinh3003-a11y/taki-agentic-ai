@@ -119,6 +119,19 @@ Trang **Sản xuất video Flow** chạy 3 skill Flow của phòng MKT (`flow-re
 
 Quyền của agent chỉ gồm công cụ trình duyệt Playwright (Chrome Flow), đọc/ghi file trong thư mục job + ảnh tải lên, và các lệnh `ffmpeg`, `ffprobe`, `taki-flow-save` (lưu clip từ trang Tool — nút tải của Tool bị Chrome chặn), `taki-video-finish`, `taki-video-stt`, `cp/mv/ls/mkdir/unzip/stat`. Không đăng nhập hộ, không nhập mật khẩu, không mua tín dụng. Kênh "khác/khách hàng" không nạp DNA TAKI.
 
+## Video AI chạy trên máy (không tốn tín dụng Flow)
+
+Cài một lần: `pnpm video-ai:install` (bootstrap tự gọi; ~3 GB, khóa phiên bản theo commit; mã nguồn tải về `services/video-ai/`, không lên Git). Trang **Sản xuất video** có thêm 2 công cụ bên cạnh Google Flow + thẻ **Công cụ video AI trên máy**:
+
+| Repo | Dùng cho | Ghi chú |
+|---|---|---|
+| [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) (MIT) | **Video tự động**: Claude CLI viết lời đọc + từ khóa cảnh → ghép cảnh (clip video Flow đã làm, clip/ảnh của Sếp, hoặc kho Pexels/Pixabay miễn phí) + giọng Việt + phụ đề Be Vietnam Pro + nhạc nền → Review → Duyệt | Chạy qua CLI với kịch bản của mình nên không gọi LLM nào khác; khóa Pexels/Pixabay nhập trên giao diện, chỉ lưu trong `config.toml` trên máy |
+| [LivePortrait](https://github.com/KlingAIResearch/LivePortrait) (MIT) | **Ảnh chân dung cử động** theo video biểu cảm mẫu (12 mẫu có sẵn hoặc video của Sếp), có thể lồng giọng → thư viện video | TAKI thay dò mặt InsightFace (mô hình chỉ cho nghiên cứu phi thương mại) bằng **MediaPipe** (Apache-2.0) — bản vá ở `services/video-ai-patches/liveportrait`. Trên M2 ~1 phút cho mỗi giây clip |
+| [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (MIT) | Soát lời thoại video Flow, **tạo phụ đề .srt** từ video/âm thanh | `tools/video/stt.py`, giải mã âm thanh bằng ffmpeg (tránh lỗi tương thích PyAV) |
+| [fish-speech](https://github.com/fishaudio/fish-speech) | — **không cài** | Bản S2-Pro (4B) cần GPU/RAM lớn; giấy phép Fish Audio cấm dùng thương mại (kể cả nội bộ) nếu không mua license → dùng **Edge TTS** (giọng Hoài My / Nam Minh) |
+
+Mỗi lần chỉ chạy 1 job video trên máy (khóa hàng đợi `video-ai`, máy 8 GB RAM). Ngân Nguyệt có công cụ `tao_video_tu_dong`, `anh_cu_dong`, `long_tieng`, `trang_thai_video_ai`. Các lệnh video của agent Flow (`taki-video-finish`, `taki-video-stt`, `taki-flow-save`) được tạo trong `data/bin` trỏ về chính repo này.
+
 ## Jev làm gì trong hệ thống
 
 Jev trả lời câu hỏi có kiểu (Có/Không, Chọn một, Chấm điểm) kèm xác suất. **Code giữ chính sách**: ngưỡng → hành động nằm trong `packages/jev/src/questions.ts` (`decideChat`, `decideGuard`…).

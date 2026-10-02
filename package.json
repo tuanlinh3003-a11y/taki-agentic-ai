@@ -22,7 +22,8 @@
     "skills:export": "tsx scripts/export-skills.ts",
     "zlcrm:connect": "node scripts/zlcrm-connect.mjs",
     "verify": "pnpm run typecheck && pnpm test && pnpm run build:web",
-    "workspace:export": "tsx --env-file-if-exists=.env scripts/export-workspace.ts"
+    "workspace:export": "tsx --env-file-if-exists=.env scripts/export-workspace.ts",
+    "video-ai:install": "node scripts/install-video-ai.mjs"
   },
   "dependencies": {
     "@dotaka/agents": "workspace:*",

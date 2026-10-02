@@ -147,6 +147,36 @@ tool("tao_video_flow", "Sản xuất video trên Google Flow (tốn tín dụng 
 }, async (a) => confirm(`Tạo video Flow: ${a.tieu_de}`, `${a.cong_cu} · ${a.thoi_luong ?? "mặc định"}s · tốn tín dụng Flow`, "POST", "/v1/creative/jobs", {
   tool: a.cong_cu, title: a.tieu_de, brief: a.noi_dung, product: a.san_pham, durationSec: a.thoi_luong, voice: a.giong, hookTitle: a.hook, cta: a.cta, channels: a.kenh ?? ["tiktok"], brand: a.thuong_hieu ?? "other", images: [],
 }));
+tool("tao_video_tu_dong", "Làm NGAY video ngắn tự động trên máy (không tốn tín dụng Flow): Claude CLI viết lời đọc tiếng Việt, MoneyPrinterTurbo ghép cảnh + giọng Edge TTS + phụ đề → Review → hộp Duyệt. Nguồn cảnh: flow (clip của 1 video Flow đã làm, cần flow_job_id), pexels/pixabay (kho miễn phí, cần khóa đã nhập), local (không dùng qua chat).", {
+  tieu_de: z.string().min(2), noi_dung: z.string().min(5).describe("Chủ đề/thông tin sản phẩm, hoặc lời đọc có sẵn nếu loi_doc_co_san=true"), san_pham: z.string().optional(),
+  thoi_luong: z.number().int().min(15).max(90).optional(), cta: z.string().optional(), nguon_canh: z.enum(["flow", "pexels", "pixabay"]).optional(), flow_job_id: z.string().optional(),
+  loi_doc_co_san: z.boolean().optional(), giong: z.enum(["nu", "nam"]).optional(), khung: z.enum(["9:16", "16:9", "1:1"]).optional(), kenh: z.array(z.enum(["tiktok", "facebook", "instagram"])).optional(), thuong_hieu: z.enum(["taki", "other"]).optional(),
+}, async (a) => {
+  const j = await call("POST", "/v1/creative/jobs", {
+    tool: "auto-video", title: a.tieu_de, brief: a.noi_dung, product: a.san_pham, durationSec: a.thoi_luong ?? 30, cta: a.cta, channels: a.kenh ?? ["tiktok"], brand: a.thuong_hieu ?? "other", images: [],
+    video: { source: a.nguon_canh ?? (a.flow_job_id ? "flow" : "pexels"), flowJobId: a.flow_job_id, scriptReady: a.loi_doc_co_san, voiceName: a.giong === "nam" ? "vi-VN-NamMinhNeural-Male" : "vi-VN-HoaiMyNeural-Female", aspect: a.khung ?? "9:16" },
+  });
+  await dispatched("auto-video", "creative_job", j.id, a.tieu_de);
+  return { jobId: j.id, status: j.status, ghiChu: "Đang dựng trên máy (~2-5 phút), xong vào hộp Duyệt. Theo dõi ở [Sản xuất video](/video-flow)." };
+});
+tool("anh_cu_dong", "Làm ảnh chân dung CỬ ĐỘNG (LivePortrait, chạy trên máy ~1 phút/giây clip) từ 1 ảnh đã tải lên hệ thống (đường dẫn file) + video biểu cảm mẫu (d0…d20), có thể lồng giọng đọc. Clip vào thư viện video, không tự đăng.", {
+  tieu_de: z.string().min(2), anh: z.string().describe("Đường dẫn ảnh chân dung trên máy (từ uploads / Agentic Brain)"), mau: z.string().optional().describe("Tên video mẫu, vd d12.mp4"),
+  giay: z.number().int().min(3).max(15).optional(), loi_long_tieng: z.string().max(2000).optional(), giong: z.enum(["nu", "nam"]).optional(),
+}, async (a) => {
+  const j = await call("POST", "/v1/creative/jobs", {
+    tool: "portrait", title: a.tieu_de, brief: `${a.tieu_de} — ảnh chân dung cử động`, channels: ["tiktok"], images: [{ path: a.anh, role: "Nhân vật" }],
+    video: { driving: a.mau ?? "d12.mp4", seconds: a.giay ?? 6, voiceText: a.loi_long_tieng, voiceName: a.giong === "nam" ? "vi-VN-NamMinhNeural-Male" : "vi-VN-HoaiMyNeural-Female" },
+  });
+  await dispatched("portrait", "creative_job", j.id, a.tieu_de);
+  return { jobId: j.id, status: j.status };
+});
+tool("long_tieng", "Tạo file giọng đọc tiếng Việt (Edge TTS: nữ Hoài My / nam Nam Minh) + phụ đề .srt từ một đoạn văn. Trả link nghe/tải.", {
+  van_ban: z.string().min(1).max(5000), giong: z.enum(["nu", "nam"]).optional(), toc_do: z.number().min(0.8).max(1.3).optional(),
+}, async (a) => {
+  const r = await call("POST", "/v1/video-ai/tts", { text: a.van_ban, voice: a.giong === "nam" ? "vi-VN-NamMinhNeural-Male" : "vi-VN-HoaiMyNeural-Female", rate: a.toc_do });
+  return { thoiLuongGiay: Math.round(r.duration * 10) / 10, nghe: `[Nghe giọng đọc](/v1/video-ai/file?path=${encodeURIComponent(r.mp3)})`, phuDe: `[Tải .srt](/v1/video-ai/file?path=${encodeURIComponent(r.srt)}&download=1)` };
+});
+tool("trang_thai_video_ai", "Trạng thái công cụ video trên máy (MoneyPrinterTurbo, LivePortrait, faster-whisper, Edge TTS), khóa kho cảnh, video mẫu biểu cảm.", {}, async () => get("/v1/video-ai/status"));
 tool("huy_video", "Dừng 1 job video Flow đang chạy. Tạo thẻ xác nhận.", { id: z.string(), tieu_de: z.string().optional() }, async (a) => confirm(`Dừng video Flow: ${a.tieu_de ?? a.id}`, "", "POST", `/v1/creative/jobs/${encodeURIComponent(a.id)}/cancel`, {}));
 tool("tra_loi_khach", "Gửi tin nhắn trả lời 1 khách hàng (hội thoại) dưới danh nghĩa nhân viên. Tạo thẻ xác nhận.", { hoi_thoai_id: z.string(), noi_dung: z.string().min(1).max(2000), ten_khach: z.string().optional() }, async (a) =>
   confirm(`Trả lời khách ${a.ten_khach ?? a.hoi_thoai_id}`, a.noi_dung, "POST", `/v1/conversations/${encodeURIComponent(a.hoi_thoai_id)}/reply`, { text: a.noi_dung }));

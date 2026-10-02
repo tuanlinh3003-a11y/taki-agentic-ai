@@ -5,12 +5,12 @@ import { formatVnd, logger, nowIso } from "@dotaka/shared";
 import { runAllRules, executeAction, publishCandidate, startAdsReport, syncAdMetrics, latestDaily, sumMetrics, today } from "./ads.ts";
 import { expireApprovals } from "./approvals.ts";
 import { learnDaily } from "./learning.ts";
-import { reattachVideoJob, runDraftUpload, runVideoJob } from "./creative.ts";
+import { engineOf, reattachVideoJob, runDraftUpload, runLocalVideoJob, runVideoJob } from "./creative.ts";
 import { ensureAssistantAgent } from "./assistant.ts";
 import { startBrain } from "./brain.ts";
 import { brainTick, registerBrainHooks } from "./brain-auto.ts";
 import { runPublishJob, schedulePublish, snapshotPost } from "./publishing.ts";
-import { startScheduler, startWorkers, type Handler } from "./queue.ts";
+import { enqueue, startScheduler, startWorkers, type Handler } from "./queue.ts";
 import { runTask } from "./runtime.ts";
 import { connectionHealthAll, registerTelegramFromDb } from "./connections.ts";
 import { automationsTick, ensureAutomations } from "./automations.ts";
@@ -32,6 +32,7 @@ export * from "./flow-browser.ts";
 export * from "./assistant.ts";
 export * from "./brain.ts";
 export * from "./brain-auto.ts";
+export * from "./video-ai.ts";
 
 export async function dailyReport(bizId: string) {
   const ads = q.all<Row>("SELECT id FROM ad WHERE biz_id = ?", bizId);
@@ -50,6 +51,7 @@ export const HANDLERS: Record<string, Handler> = {
   "agent.run": async (p) => runTask(p.taskId),
   "chat.ingest": async (p) => void (await handleIncoming(p.bizId, p.msg)),
   "creative.flow": async (p) => runVideoJob(p.jobId),
+  "creative.local": async (p) => runLocalVideoJob(p.jobId),
   "publish.draft": async (p) => runDraftUpload(p.publishJobId),
   "publish.schedule": async (p, job) => void schedulePublish(job.biz_id, p.contentItemId),
   "publish.run": async (p) => runPublishJob(p.publishJobId),
@@ -79,7 +81,12 @@ export function startOrchestrator() {
     audit(t.biz_id, "orchestrator", "task.recovered", { type: "task", id: t.id }, { from: t.status });
   }
   // Flow agents run detached and survive a server restart: re-attach (live log + result.json).
-  for (const j of q.all<Row>("SELECT id FROM creative_job WHERE status = 'running'")) void reattachVideoJob(j.id).catch((e) => logger.warn("creative.reattach_failed", { jobId: j.id, error: String(e) }));
+  for (const j of q.all<Row>("SELECT id, biz_id, tool FROM creative_job WHERE status = 'running'")) {
+    if (engineOf(j.tool) === "flow") { void reattachVideoJob(j.id).catch((e) => logger.warn("creative.reattach_failed", { jobId: j.id, error: String(e) })); continue; }
+    // Local engines run inside this process — after a restart, start the job again from the queue.
+    update("creative_job", j.id, { status: "queued", step: "Máy chủ vừa khởi động lại — chạy lại" });
+    enqueue("agent", "creative.local", { jobId: j.id }, { bizId: j.biz_id, idempotencyKey: `flow:${j.id}:r${Date.now()}`, lockKey: "video-ai", maxAttempts: 1 });
+  }
   registerTelegramFromDb();
   // Bộ não: index + watch every vault, archive finished work as it happens, first tick (creates the default vault).
   startBrain();

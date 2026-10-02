@@ -36,7 +36,7 @@ export const VAULT_FOLDERS: { name: string; about: string; subs?: string[] }[] =
   { name: F.market, about: "Khách hàng & thị trường: chân dung khách, insight & nỗi đau, hồ sơ đối thủ, nghiên cứu thị trường.", subs: ["Chân dung khách hàng", "Đối thủ", "Nghiên cứu"] },
   { name: F.campaigns, about: "Chiến dịch: mỗi chiến dịch một thư mục — brief → nghiên cứu → chiến lược → kết quả." },
   { name: F.content, about: "Nội dung: bài viết đa kênh, bài SEO, lịch đăng, thư viện bài thắng.", subs: ["Bài viết", "SEO", "Thư viện bài thắng"] },
-  { name: F.video, about: "Video: kịch bản → video Flow → bản hoàn thiện + caption; kho hook, video viral tham khảo, video thắng.", subs: ["Kịch bản", "Video Flow", "Kho hook", "Thư viện video thắng"] },
+  { name: F.video, about: "Video: kịch bản → video Flow → bản hoàn thiện + caption; kho hook, video viral tham khảo, video thắng.", subs: ["Kịch bản", "Video Flow", "Video tự động", "Ảnh cử động", "Kho hook", "Thư viện video thắng"] },
   { name: F.ads, about: "Quảng cáo: báo cáo Ads, quyết định scale/tắt & lý do, mẫu quảng cáo.", subs: ["Báo cáo", "Quyết định"] },
   { name: F.sales, about: "Bán hàng & chăm sóc: lead nóng, hội thoại đáng chú ý, follow-up Zalo, kịch bản chốt, xử lý từ chối.", subs: ["Kịch bản chốt"] },
   { name: F.review, about: "Review & kiểm duyệt: mục bị chặn & lý do, lỗi hay gặp, bộ tiêu chí chấm.", subs: ["Bị chặn"] },
