@@ -66,6 +66,27 @@ export const FLOW_TOOLS = {
       "XUẤT VIDEO: \"Tạo tất cả video\" (quay lần lượt, Veo 3.1 Lite 8s/cảnh, tự kiểm tra mặt + tự quay lại ≤2 lần). Tiến độ ở thanh nổi dưới cùng \"Tiến độ hoàn tất x/N\". Nhãn \"Nhân vật chưa khớp\" → xem clip rồi \"Tạo lại cảnh\" (≤1 lần) hoặc \"Bỏ qua lỗi\". Cảnh lỗi → \"Bắt đầu quay\". Nút \"Ghép & Tải Video\": KHÔNG bấm — dùng taki-flow-save.",
     ],
   },
+  "nguoi-que-so-sanh": {
+    skill: "flow-nguoi-que-so-sanh", label: "Người que so sánh sản phẩm", toolTitle: "Storyboard Studio VN", minutes: 40,
+    hint: "Sản phẩm A vs B + tiêu chí so sánh (giá, chất lượng, tiện lợi…), ảnh 2 sản phẩm, ảnh người que mẫu (thiếu thì AI tự tạo), giọng, CTA",
+    toolUrl: "https://flow.google.com/project/af2cb6c3-2519-40b3-ad29-58156bf9e264/tool/7bf9f78b-cd78-4a29-9dc6-dc1ff72d1732",
+    slots: [
+      { role: "Nhân vật người que", label: "Người que mẫu (nhân vật chính)", hint: "Quyết định nét vẽ cả video — thiếu thì AI tạo người que trên Flow" },
+      { role: "Sản phẩm A", label: "Sản phẩm A (của mình)", hint: "Ảnh rõ sản phẩm / bao bì" },
+      { role: "Sản phẩm B", label: "Sản phẩm B (đối chứng)", hint: "Tuỳ chọn" },
+    ],
+    // Read from the Tool's own source on 2026-10-02 (shared tool 7bf9f78b "Storyboard Studio VN", added to the review-do-an-vat project).
+    uiMap: [
+      "Tiêu đề trong Tool là \"STORYBOARD STUDIO VN\" (tiêu đề trang Flow là tên project). Thanh bước: 1 Đầu vào · 2 Kịch bản · 3 Storyboard · 4 Video · 5 Hoàn thiện. Nút chính nằm ở THANH DƯỚI CÙNG hoặc cuối danh sách cảnh.",
+      "Tool LƯU NHÁP trong trình duyệt: nếu mở ra đã có tham chiếu/kịch bản/bước > 1 của video trước → bấm \"Làm mới\" 2 lần (lần 1 đổi chữ thành \"Xóa dữ liệu?\", lần 2 xác nhận) — chỉ xóa nháp của Tool, được phép. Công tắc \"DEBUG PROMPT\" phải TẮT (bật thì không tạo gì).",
+      "Bước 1: \"1. THAM CHIẾU (n/4)\" nút \"THÊM ẢNH\" (mỗi lần 1 ảnh) → hộp \"Select media\" của Flow (NGOÀI iframe): \"Upload media\" + browser_file_upload, hoặc chọn ảnh có sẵn. Ảnh 1 tự nhận vai NHÂN VẬT, ảnh sau là SẢN PHẨM; bấm nhãn vai dưới ảnh để đổi vòng Nhân vật→Sản phẩm→Bối cảnh→Khác. Mỗi khung chỉ dùng 3 tham chiếu đầu (Nhân vật + 2 cái khác).",
+      "Gán ảnh đầu vào: \"Nhân vật người que\" → ảnh 1 (NHÂN VẬT); \"Sản phẩm A\" → ảnh 2; \"Sản phẩm B\" → ảnh 3 (SẢN PHẨM). Thiếu người que: về trang project tạo 1 ảnh người que (Image, 9:16, x1) rồi chọn trong Images.",
+      "Bước 1 tiếp: ô \"2. PHONG CÁCH BỔ SUNG\" (tiếng Anh), \"3. TỶ LỆ KHUNG HÌNH\" 16:9/9:16/1:1, \"4. GIỌNG AI (VOICE LOCK)\" textarea + 3 nút Nam miền Bắc / Nữ miền Bắc / Nữ miền Nam; textarea lớn \"DÁN KỊCH BẢN TIẾNG VIỆT\" → \"Phân tích kịch bản\" (cần ≥1 tham chiếu) → tự sang bước 2.",
+      "Bước 2 mỗi thẻ cảnh: ô tiêu đề, nút thời lượng 4s/6s/8s/10s, textarea \"MÔ TẢ HÌNH ẢNH (EN)\", textarea \"LỜI THOẠI (VN)\" với bộ đếm \"x/y từ\" (y = 2 từ/giây; đỏ = quá), Chuyển động static/push-in/action, checkbox \"Có thoại\", chế độ voice over/on camera (chọn voice over). \"Thêm cảnh\" ở đầu, \"Gỡ cảnh\" (bấm 2 lần). Cuối trang: \"Duyệt kịch bản → Sang Storyboard\".",
+      "Bước 3: thanh dưới \"Tạo Scene 1 làm neo\" → xem ảnh → \"Duyệt Neo & Tạo phần còn lại\". Mỗi thẻ: \"Tạo lại\" và nút mỏ neo (anchor = tạo lại bám tham chiếu chặt hơn). Cuối lưới: \"Chuyển sang Video\".",
+      "Bước 4: thanh dưới \"Tạo tất cả video chưa có\" (Omni 1.1 Flash, 2 clip song song); tiến độ \"x / N clip video\" ở thanh dưới; cảnh lỗi có \"Thử lại\"/\"Chi tiết\". Khi đủ N/N, Ở NGAY BƯỚC 4 (lưới video theo đúng thứ tự cảnh) chạy taki-flow-save. KHÔNG sang bước 5 bấm Ghép phim / Lưu video / Tải clip gốc.",
+    ],
+  },
   "cooking-director": {
     skill: "flow-cooking-director-video", label: "Flow Cooking Director v2", minutes: 45, hint: "3 ảnh (chân dung người dẫn, món ăn, bao bì/góc bếp) + tên, giá, điểm nổi bật", toolUrl: null, uiMap: [],
     slots: [
@@ -88,8 +109,8 @@ export const FLOW_TOOLS = {
     engine: "liveportrait", skill: "", label: "Ảnh chân dung cử động", minutes: 5, hint: "1 ảnh chân dung rõ mặt + video biểu cảm mẫu (có sẵn hoặc tải lên) → LivePortrait làm ảnh cử động; có thể lồng giọng đọc", toolUrl: null, uiMap: [],
     slots: [{ role: "Nhân vật", label: "Ảnh chân dung", hint: "Chính diện, rõ mặt, 1 người", required: true }],
   },
-} as { [k: string]: { engine?: "flow" | "moneyprinter" | "liveportrait"; skill: string; label: string; minutes: number; hint: string; toolUrl: string | null; uiMap: string[]; slots?: { role: string; label: string; hint: string; required?: boolean }[] } };
-export type FlowToolKey = "review-do-an-vat" | "review-thoi-trang" | "cooking-director" | "cinematic" | "auto-video" | "portrait";
+} as { [k: string]: { engine?: "flow" | "moneyprinter" | "liveportrait"; skill: string; label: string; /** Name the Tool itself shows, when the card label differs. */ toolTitle?: string; minutes: number; hint: string; toolUrl: string | null; uiMap: string[]; slots?: { role: string; label: string; hint: string; required?: boolean }[] } };
+export type FlowToolKey = "review-do-an-vat" | "review-thoi-trang" | "nguoi-que-so-sanh" | "cooking-director" | "cinematic" | "auto-video" | "portrait";
 export const engineOf = (tool: string) => FLOW_TOOLS[tool]?.engine ?? "flow";
 
 export const CreativeInput = z.object({
@@ -318,7 +339,7 @@ export async function runVideoJob(jobId: string) {
     `# SKILL ĐANG CHẠY: ${tool.skill} (v${skill.version})`,
     skill.body,
     "",
-    ...environmentInstructions({ toolLabel: tool.label, toolUrl: toolUrlFor(fs, input.tool), uiMap: tool.uiMap, email, workdir, rawDir }),
+    ...environmentInstructions({ toolLabel: tool.toolTitle ?? tool.label, toolUrl: toolUrlFor(fs, input.tool), uiMap: tool.uiMap, email, workdir, rawDir }),
     `- KẾT THÚC: dùng Write ghi kết quả JSON vào ${join(workdir, "result.json")} đúng schema sau rồi in "XONG — có thể đóng cửa sổ". Schema: ${JSON.stringify(Object.fromEntries(Object.entries(z.toJSONSchema(FlowResult, { target: "draft-7" }) as Row).filter(([k]) => k !== "$schema")))}`,
     `- Bị chặn/lỗi giữa chừng cũng PHẢI ghi result.json với status "blocked"/"failed" và lý do trong notes. finalPath = ${join(workdir, "final.mp4")} khi thành công. caption = caption đăng kênh (tiếng Việt, ≤ 300 ký tự, 3-5 hashtag). script = lời thoại từng cảnh.`,
     ...(dna ? ["", "# THƯƠNG HIỆU: TAKI (áp dụng DNA dưới đây cho lời thoại, caption, claim)", dna] : ["", "# THƯƠNG HIỆU: kênh khác/khách hàng. KHÔNG dùng giọng hay tên TAKI; theo thông tin trong brief."]),
