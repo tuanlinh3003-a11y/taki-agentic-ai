@@ -26,6 +26,12 @@ export const FLOW_TOOLS = {
     skill: "flow-review-do-an-vat", label: "Review Đồ Ăn Vặt AI V6", minutes: 40,
     hint: "Ảnh bao bì sản phẩm + ảnh nhân vật review (Tool bắt buộc 2 ảnh này; thiếu thì AI tự tạo ảnh trên Flow), tên sản phẩm, giọng, ưu đãi/CTA",
     toolUrl: "https://flow.google.com/project/af2cb6c3-2519-40b3-ad29-58156bf9e264/tool/906532d8-6672-4f21-8bc4-55e5bd9cac91",
+    slots: [
+      { role: "Nhân vật / người review", label: "Người review (nhân vật chính)", hint: "Ô A trong Tool · ảnh rõ mặt, nửa người — thiếu thì AI tự tạo" },
+      { role: "Bao bì / sản phẩm", label: "Ảnh sản phẩm / bao bì", hint: "Ô B trong Tool · ảnh thật của sản phẩm — thiếu thì AI tự tạo" },
+      { role: "Bên trong sản phẩm", label: "Bên trong / miếng ăn", hint: "Ô I · tuỳ chọn" },
+      { role: "Bối cảnh / góc bếp", label: "Bối cảnh", hint: "Ô E · tuỳ chọn" },
+    ],
     // What the Tool (V6) actually shows — read live from the Tool on 2026-10-01; differs from the skill text on images.
     uiMap: [
       "Thanh tiến trình 5 bước: 1 CẤU HÌNH · 2 KHUNG CHỦ · 3 KỊCH BẢN · 4 STORYBOARD · 5 SẢN XUẤT (bấm số để quay lại bước).",
@@ -37,12 +43,29 @@ export const FLOW_TOOLS = {
       "Giọng: nút đang chọn có nền cam. Sau khi bấm MIỀN/GIỚI TÍNH, sang bước 3 kiểm tra dòng \"GIỌNG: …\" trên BẢNG KỊCH BẢN cho đúng.",
     ],
   },
-  "cooking-director": { skill: "flow-cooking-director-video", label: "Flow Cooking Director v2", minutes: 45, hint: "3 ảnh (chân dung người dẫn, món ăn, bao bì/góc bếp) + tên, giá, điểm nổi bật", toolUrl: null, uiMap: [] },
-  "cinematic": { skill: "flow-cinematic-short-film", label: "Cinematic Short Film Studio", minutes: 50, hint: "Ảnh nhân vật/bối cảnh/đạo cụ + chủ đề, thông điệp, thời lượng 30/60/90s", toolUrl: null, uiMap: [] },
+  "cooking-director": {
+    skill: "flow-cooking-director-video", label: "Flow Cooking Director v2", minutes: 45, hint: "3 ảnh (chân dung người dẫn, món ăn, bao bì/góc bếp) + tên, giá, điểm nổi bật", toolUrl: null, uiMap: [],
+    slots: [
+      { role: "Nhân vật / người dẫn", label: "Người dẫn (nhân vật chính)", hint: "Chân dung rõ mặt" },
+      { role: "Sản phẩm / món ăn", label: "Món ăn / sản phẩm", hint: "Ảnh thật của món / sản phẩm" },
+      { role: "Bao bì / góc bếp", label: "Bao bì / góc bếp", hint: "Tuỳ chọn" },
+    ],
+  },
+  "cinematic": {
+    skill: "flow-cinematic-short-film", label: "Cinematic Short Film Studio", minutes: 50, hint: "Ảnh nhân vật/bối cảnh/đạo cụ + chủ đề, thông điệp, thời lượng 30/60/90s", toolUrl: null, uiMap: [],
+    slots: [
+      { role: "Nhân vật chính", label: "Nhân vật chính", hint: "Người / nhân vật xuất hiện xuyên suốt phim" },
+      { role: "Sản phẩm / đạo cụ", label: "Sản phẩm / đạo cụ", hint: "Tuỳ chọn" },
+      { role: "Bối cảnh", label: "Bối cảnh", hint: "Tuỳ chọn" },
+    ],
+  },
   // Local video AI (services/video-ai) — no Flow credits, no browser
   "auto-video": { engine: "moneyprinter", skill: "", label: "Video tự động · cảnh + giọng đọc", minutes: 4, hint: "Chủ đề hoặc kịch bản có sẵn → Claude CLI viết lời đọc, MoneyPrinterTurbo ghép cảnh (Pexels/Pixabay hoặc clip của Sếp / clip Flow), giọng Việt Edge TTS, phụ đề tự động", toolUrl: null, uiMap: [] },
-  "portrait": { engine: "liveportrait", skill: "", label: "Ảnh chân dung cử động", minutes: 5, hint: "1 ảnh chân dung rõ mặt + video biểu cảm mẫu (có sẵn hoặc tải lên) → LivePortrait làm ảnh cử động; có thể lồng giọng đọc", toolUrl: null, uiMap: [] },
-} as { [k: string]: { engine?: "flow" | "moneyprinter" | "liveportrait"; skill: string; label: string; minutes: number; hint: string; toolUrl: string | null; uiMap: string[] } };
+  "portrait": {
+    engine: "liveportrait", skill: "", label: "Ảnh chân dung cử động", minutes: 5, hint: "1 ảnh chân dung rõ mặt + video biểu cảm mẫu (có sẵn hoặc tải lên) → LivePortrait làm ảnh cử động; có thể lồng giọng đọc", toolUrl: null, uiMap: [],
+    slots: [{ role: "Nhân vật", label: "Ảnh chân dung", hint: "Chính diện, rõ mặt, 1 người", required: true }],
+  },
+} as { [k: string]: { engine?: "flow" | "moneyprinter" | "liveportrait"; skill: string; label: string; minutes: number; hint: string; toolUrl: string | null; uiMap: string[]; slots?: { role: string; label: string; hint: string; required?: boolean }[] } };
 export type FlowToolKey = "review-do-an-vat" | "cooking-director" | "cinematic" | "auto-video" | "portrait";
 export const engineOf = (tool: string) => FLOW_TOOLS[tool]?.engine ?? "flow";
 
@@ -55,7 +78,7 @@ export const CreativeInput = z.object({
   voice: z.string().max(200).optional(),
   hookTitle: z.string().max(120).optional(),
   cta: z.string().max(160).optional(),
-  images: z.array(z.object({ path: z.string(), role: z.string() })).max(5).default([]),
+  images: z.array(z.object({ path: z.string(), role: z.string() })).max(8).default([]),
   channels: z.array(z.string()).min(1).default(["tiktok"]),
   brand: z.enum(["taki", "other"]).default("other"), // "other" = affiliate/client channel: TAKI DNA is NOT applied
   sourceContentId: z.string().optional(),
@@ -286,7 +309,9 @@ export async function runVideoJob(jobId: string) {
     input.voice ? `Giọng: ${input.voice}` : "",
     input.hookTitle ? `Tiêu đề hook trên video: ${input.hookTitle}` : "",
     input.cta ? `CTA trên video: ${input.cta}` : "",
-    input.images.length ? `Ảnh đầu vào (đường dẫn trên máy — tải lên Tool bằng browser_file_upload):\n${input.images.map((i) => `- ${i.role}: ${i.path}`).join("\n")}` : "Không có ảnh đầu vào (ảnh bắt buộc của Tool thì tự tạo trên Flow như hướng dẫn).",
+    input.images.length
+      ? `ẢNH CỦA SẾP (ưu tiên dùng — KHÔNG tự tạo ảnh thay cho vai trò đã có; tải lên đúng ô của Tool bằng browser_file_upload):\n${input.images.map((i) => `- ${i.role}: ${i.path}`).join("\n")}${input.images.some((i) => /nhân vật|người/i.test(i.role)) ? "\nNgười trong ảnh nhân vật là NHÂN VẬT CHÍNH: giữ đúng khuôn mặt/trang phục này ở mọi cảnh." : ""}`
+      : "Không có ảnh đầu vào (ảnh bắt buộc của Tool thì tự tạo trên Flow như hướng dẫn).",
     `Nếu Tool có chọn model Veo: ${input.veoModel}.`,
     `Kênh sẽ đăng: ${input.channels.join(", ")} (dọc 9:16).`,
     `Hãy chạy toàn bộ skill trong Tool "${tool.label}" đến khi có final.mp4 đã ghép + chèn chữ, rồi ghi result.json.`,

@@ -28,7 +28,7 @@ export function VideoFlow() {
 
   const [form, setForm] = useState<any>({
     tool: "review-do-an-vat", title: "", brand: "other", product: "", brief: "", durationSec: 48, veoModel: "Veo 3.1 - Fast", voice: "", hookTitle: "", cta: "", channels: ["tiktok"], images: [] as { path: string; role: string; name: string }[],
-    // local engines (Video tự động / Ảnh cử động)
+    // ảnh theo ô (vai trò) + ảnh tham khảo khác; local engines (Video tự động / Ảnh cử động)
     video: { source: "flow", flowJobId: "", scriptReady: false, terms: "", voiceName: "vi-VN-HoaiMyNeural-Female", voiceRate: 1, bgm: "random", aspect: "9:16", clipDuration: 4, driving: "d12.mp4", drivingPath: "", drivingName: "", voiceText: "", seconds: 6, materials: [] as { path: string; name: string }[] },
   });
   const vai = useApi<any>("video-ai/status");
@@ -44,14 +44,18 @@ export function VideoFlow() {
     api.get(`content/${from}`).then((c) => set({ title: c.title, brief: c.body, brand: "taki", tool: "cinematic", sourceContentId: c.id, channels: [c.channel ?? "tiktok"].filter((x) => CHANNELS.includes(x)) })).catch(() => {});
   }, [params]);
 
-  const upload = async (files: FileList | null) => {
+  /** Upload images; with `role` the image fills that slot (replacing what was there), else it is an extra reference. */
+  const upload = async (files: FileList | File[] | null, role?: string) => {
     if (!files) return;
-    for (const f of Array.from(files).slice(0, 5 - form.images.length)) {
+    const list = Array.from(files).filter((f) => /^image\//.test(f.type) || /\.(png|jpe?g|webp|heic)$/i.test(f.name));
+    if (!list.length) { toast("Chỉ nhận ảnh png/jpg/webp/heic", "err"); return; }
+    for (const f of role ? list.slice(0, 1) : list.slice(0, Math.max(0, 8 - form.images.length))) {
       const data = await new Promise<string>((res) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.readAsDataURL(f); });
       try {
         const r = await api.post("/v1/uploads", { name: f.name, data });
-        setForm((x: any) => ({ ...x, images: [...x.images, { path: r.path, role: ROLES[x.images.length] ?? "Ảnh", name: f.name }] }));
-      } catch (e: any) { toast(e.message, "err"); }
+        const img = { path: r.path, role: role ?? "Ảnh tham khảo khác", name: f.name, preview: URL.createObjectURL(f) };
+        setForm((x: any) => ({ ...x, images: role ? [...x.images.filter((i: any) => i.role !== role), img] : [...x.images, img] }));
+      } catch (e: any) { toast(`${f.name}: ${e.message}`, "err"); }
     }
   };
 
@@ -73,7 +77,9 @@ export function VideoFlow() {
         ? { source: video.source, flowJobId: video.source === "flow" ? video.flowJobId || undefined : undefined, materials: video.source === "local" ? video.materials.map((m: any) => m.path) : undefined, scriptReady: video.scriptReady || undefined, terms: video.terms || undefined, voiceName: video.voiceName, voiceRate: Number(video.voiceRate), bgm: video.bgm, aspect: video.aspect, clipDuration: Number(video.clipDuration) }
         : engine === "liveportrait" ? { driving: video.drivingPath ? undefined : video.driving, drivingPath: video.drivingPath || undefined, voiceText: video.voiceText || undefined, voiceName: video.voiceName, seconds: Number(video.seconds) } : undefined;
       const brief = form.brief.trim().length >= 5 ? form.brief : `${form.title} — ${tool?.label ?? ""}`;
-      const j = await api.post("creative/jobs", { ...rest, brief, video: v, durationSec: Number(form.durationSec) || undefined, images: images.map((i: any) => ({ path: i.path, role: i.role })), product: form.product || undefined, voice: form.voice || undefined, hookTitle: form.hookTitle || undefined, cta: form.cta || undefined });
+      const slotRoles = new Set((tool?.slots ?? []).map((x: any) => x.role));
+      const used = engine === "flow" ? images : images.filter((i: any) => slotRoles.has(i.role)); // local engines use their own slots only
+      const j = await api.post("creative/jobs", { ...rest, brief, video: v, durationSec: Number(form.durationSec) || undefined, images: used.map((i: any) => ({ path: i.path, role: i.role })), product: form.product || undefined, voice: form.voice || undefined, hookTitle: form.hookTitle || undefined, cta: form.cta || undefined });
       toast(engine === "flow" ? "Đã đưa vào hàng đợi. Agent chạy ngầm trong Chrome Flow — Sếp sẽ nhận thông báo khi video xong." : "Đã đưa vào hàng đợi — chạy trên máy Sếp, có thông báo khi xong.", "info");
       setConfirm(false);
       setSelected(j.id);
@@ -202,28 +208,17 @@ export function VideoFlow() {
               <Field label="Tiêu đề hook"><input className={inputCls} value={form.hookTitle} onChange={(e) => set({ hookTitle: e.target.value })} /></Field>
               <Field label="CTA trên video"><input className={inputCls} value={form.cta} onChange={(e) => set({ cta: e.target.value })} placeholder="Bấm giỏ hàng ngay" /></Field>
             </div>
-            <div>
-              <p className="mb-2 text-sm font-medium">Ảnh tham chiếu (tối đa 5){form.tool === "review-do-an-vat" && <span className="ml-1 text-xs font-normal text-muted">— nên có ảnh bao bì + ảnh người review; thiếu thì AI tự tạo ảnh trên Flow</span>}</p>
-              <div className="flex flex-wrap gap-2">
-                {form.images.map((im: any, i: number) => (
-                  <div key={im.path} className="flex items-center gap-2 rounded-xl border border-line px-2 py-1.5 text-xs">
-                    <select className="bg-transparent" value={im.role} onChange={(e) => set({ images: form.images.map((x: any, j: number) => (j === i ? { ...x, role: e.target.value } : x)) })}>{ROLES.map((r) => <option key={r}>{r}</option>)}</select>
-                    <span className="max-w-[120px] truncate text-muted">{im.name}</span>
-                    <button onClick={() => set({ images: form.images.filter((_: any, j: number) => j !== i) })}><Trash2 className="h-3.5 w-3.5 text-muted" /></button>
-                  </div>
-                ))}
-                {form.images.length < 5 && (
-                  <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-dashed border-line px-3 py-1.5 text-xs text-muted hover:bg-soft"><ImagePlus className="h-4 w-4" />Thêm ảnh<input type="file" accept="image/*" multiple className="hidden" onChange={(e) => upload(e.target.files)} /></label>
-                )}
-              </div>
-            </div>
+            <ImageSlots slots={tool?.slots ?? []} images={form.images} onUpload={upload} onRemove={(path) => set({ images: form.images.filter((i: any) => i.path !== path) })}
+              onRole={(path, role) => set({ images: form.images.map((i: any) => (i.path === path ? { ...i, role } : i)) })}
+              note={engine === "flow" && form.tool === "review-do-an-vat" ? "Ô nào để trống thì AI tự tạo ảnh trên Flow. Ảnh Sếp tải lên được dùng đúng ô, giữ nguyên khuôn mặt nhân vật chính ở mọi cảnh." : engine === "flow" ? "Ảnh Sếp tải lên được dùng làm tham chiếu cho đúng vai trò; nhân vật chính giữ nguyên khuôn mặt ở mọi cảnh." : undefined}
+              extras={engine === "flow"} />
             <div>
               <p className="mb-2 text-sm font-medium">Đăng nháp lên kênh (sau khi duyệt)</p>
               <div className="flex gap-2">{CHANNELS.map((c) => (
                 <button key={c} onClick={() => set({ channels: form.channels.includes(c) ? form.channels.filter((x: string) => x !== c) : [...form.channels, c] })} className={cx("flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs", form.channels.includes(c) ? "border-blue-500 bg-blue-500/10" : "border-line")}><PlatformIcon p={c} size={14} />{c}</button>
               ))}</div>
             </div>
-            <div className="flex justify-end"><Button variant="primary" icon={Play} disabled={!ready || !form.title || (engine !== "liveportrait" && form.brief.length < 5) || !form.channels.length || (engine === "liveportrait" && !form.images.length) || (engine === "moneyprinter" && form.video.source === "flow" && !form.video.flowJobId) || (engine === "moneyprinter" && form.video.source === "local" && !form.video.materials.length)} onClick={() => setConfirm(true)}>Bắt đầu sản xuất</Button></div>
+            <div className="flex justify-end"><Button variant="primary" icon={Play} disabled={!ready || !form.title || (engine !== "liveportrait" && form.brief.length < 5) || !form.channels.length || (tool?.slots ?? []).some((sl: any) => sl.required && !form.images.some((i: any) => i.role === sl.role)) || (engine === "moneyprinter" && form.video.source === "flow" && !form.video.flowJobId) || (engine === "moneyprinter" && form.video.source === "local" && !form.video.materials.length)} onClick={() => setConfirm(true)}>Bắt đầu sản xuất</Button></div>
           </div>
         </Card>
 
@@ -421,5 +416,69 @@ function VideoAiTools({ status, onChanged, upload }: { status: any; onChanged: (
         </div>
       </div>
     </Card>
+  );
+}
+
+/** One upload card per role the tool needs (main character, product…) + optional extra reference images. */
+function ImageSlots({ slots, images, onUpload, onRemove, onRole, note, extras }: {
+  slots: { role: string; label: string; hint: string; required?: boolean }[]; images: any[]; note?: string; extras: boolean;
+  onUpload: (f: FileList | File[] | null, role?: string) => void; onRemove: (path: string) => void; onRole: (path: string, role: string) => void;
+}) {
+  const [over, setOver] = useState<string | null>(null);
+  const slotRoles = new Set(slots.map((s) => s.role));
+  const others = images.filter((i) => !slotRoles.has(i.role));
+  if (!slots.length && !extras) return null;
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">Ảnh cho video {note && <span className="text-xs font-normal text-muted">— {note}</span>}</p>
+      {slots.length > 0 && (
+        <div className={cx("grid gap-2.5", slots.length === 3 ? "grid-cols-3" : "grid-cols-2")}>
+          {slots.map((sl) => {
+            const img = images.find((i) => i.role === sl.role);
+            return (
+              <div key={sl.role}
+                onDragOver={(e) => { e.preventDefault(); setOver(sl.role); }} onDragLeave={() => setOver(null)}
+                onDrop={(e) => { e.preventDefault(); setOver(null); onUpload(e.dataTransfer.files, sl.role); }}
+                className={cx("group relative flex flex-col overflow-hidden rounded-xl border-2 border-dashed text-center transition", slots.length === 3 ? "aspect-[3/4]" : "aspect-[4/3]", over === sl.role ? "border-blue-500 bg-blue-500/5" : img ? "border-transparent" : "border-line hover:border-blue-400 hover:bg-soft")}>
+                {img ? (
+                  <>
+                    {img.preview ? <img src={img.preview} alt={sl.label} className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 grid place-items-center bg-soft p-2 text-[11px] text-muted">{img.name}</div>}
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-2 text-left text-white">
+                      <p className="text-[11px] font-semibold">{sl.label}</p>
+                      <div className="mt-1 flex gap-1.5 opacity-90">
+                        <label className="cursor-pointer rounded-md bg-white/20 px-2 py-0.5 text-[10px] hover:bg-white/30">Đổi ảnh<input type="file" accept="image/*" className="hidden" onChange={(e) => onUpload(e.target.files, sl.role)} /></label>
+                        <button onClick={() => onRemove(img.path)} className="rounded-md bg-white/20 px-2 py-0.5 text-[10px] hover:bg-rose-500/80">Xóa</button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <label className="flex h-full cursor-pointer flex-col items-center justify-center gap-1.5 p-2">
+                    <ImagePlus className="h-6 w-6 text-blue-500" />
+                    <span className="text-xs font-semibold text-ink">{sl.label}</span>
+                    {sl.required ? <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium text-rose-600">bắt buộc</span> : null}
+                    <span className="text-[10px] leading-tight text-muted">{sl.hint}</span>
+                    <span className="text-[10px] text-blue-600">Bấm hoặc kéo ảnh vào</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => onUpload(e.target.files, sl.role)} />
+                  </label>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {extras && (
+        <div className="flex flex-wrap items-center gap-2">
+          {others.map((im) => (
+            <div key={im.path} className="flex items-center gap-2 rounded-xl border border-line px-2 py-1.5 text-xs">
+              {im.preview && <img src={im.preview} alt="" className="h-7 w-7 rounded object-cover" />}
+              <select className="bg-transparent" value={im.role} onChange={(e) => onRole(im.path, e.target.value)}>{["Ảnh tham khảo khác", ...ROLES].map((r) => <option key={r}>{r}</option>)}</select>
+              <span className="max-w-[110px] truncate text-muted">{im.name}</span>
+              <button onClick={() => onRemove(im.path)}><Trash2 className="h-3.5 w-3.5 text-muted" /></button>
+            </div>
+          ))}
+          {images.length < 8 && <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-dashed border-line px-3 py-1.5 text-xs text-muted hover:bg-soft"><ImagePlus className="h-4 w-4" />Ảnh tham khảo khác<input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onUpload(e.target.files)} /></label>}
+        </div>
+      )}
+    </div>
   );
 }
