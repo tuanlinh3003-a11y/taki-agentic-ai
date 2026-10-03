@@ -87,6 +87,29 @@ export const FLOW_TOOLS = {
       "Bước 4: thanh dưới \"Tạo tất cả video chưa có\" (Omni 1.1 Flash, 2 clip song song); tiến độ \"x / N clip video\" ở thanh dưới; cảnh lỗi có \"Thử lại\"/\"Chi tiết\". Khi đủ N/N, Ở NGAY BƯỚC 4 (lưới video theo đúng thứ tự cảnh) chạy taki-flow-save. KHÔNG sang bước 5 bấm Ghép phim / Lưu video / Tải clip gốc.",
     ],
   },
+  "nhan-hieu": {
+    skill: "flow-video-nhan-hieu", label: "Video nhân hiệu · BrandUp", toolTitle: "BRANDUP STUDIO", minutes: 45,
+    hint: "Ảnh chân dung rõ mặt của chính người xây nhân hiệu (bắt buộc) + chủ đề/quan điểm/câu chuyện thật, giọng (nam/nữ), bối cảnh, CTA",
+    toolUrl: "https://flow.google.com/project/af2cb6c3-2519-40b3-ad29-58156bf9e264/tool/505263ff-28b6-4c01-a5df-8dc66a5da221",
+    slots: [
+      { role: "Chân dung nhân hiệu", label: "Chân dung người xây nhân hiệu", hint: "Rõ mặt, chính diện — bắt buộc (đúng người đứng tên nhân hiệu)", required: true },
+      { role: "Ảnh khác của nhân vật", label: "Ảnh khác của cùng người", hint: "Góc khác / nửa người / trang phục muốn giữ · tuỳ chọn" },
+      { role: "Ảnh nền", label: "Ảnh nền (văn phòng, studio…)", hint: "Master Background · tuỳ chọn" },
+    ],
+    // Read from the Tool's own source on 2026-10-03 (shared tool 505263ff "BRANDUP STUDIO", added to the review-do-an-vat project).
+    uiMap: [
+      "Thanh trên Flow ghi tên Tool \"Remix of BRANDUP VIDEO TOOL - NGUYEN TAT KIEM\"; trong Tool là \"BRANDUP STUDIO\". 6 bước: 1 THIẾT LẬP · 2 NHÂN VẬT · 3 BỐI CẢNH · 4 TẠO MẪU · 5 KỊCH BẢN · 6 TẠO VIDEO. Đi bước bằng \"TIẾP TỤC\" / \"QUAY LẠI\" ở thanh dưới (không kiểm tra điều kiện); bước 5 là nút \"SẢN XUẤT\". Tool KHÔNG lưu phiên; nút \"RESET\" = tải lại trang, mất hết.",
+      "Dropdown của Tool là nút tự vẽ (bấm nút có chữ giá trị hiện tại → bấm dòng lựa chọn), không phải <select>. Công tắc \"TỰ DO\"/\"KHÓA\" là 2 nút.",
+      "Bước 1: ô \"GIỌNG AI CHUẨN (GEMINI)\" mở hộp chọn giọng — CHỈ hiển thị, KHÔNG được gửi khi tạo video. Khóa giọng thật sự = \"ÂM THANH THAM CHIẾU\" → \"CHỌN MẪU AUDIO\" → hộp \"Select media\" của Flow (NGOÀI iframe) → \"Upload media\" + browser_file_upload tệp .mp3.",
+      "MẪU GIỌNG trên máy này (khi Sếp không gửi giọng thật): viết 2–3 câu đầu kịch bản (10–15 giây) rồi chạy taki-tts --voice vi-VN-HoaiMyNeural (nữ) hoặc vi-VN-NamMinhNeural (nam) --text \"…\" --write-media <workdir>/voice_ref.mp3, tải tệp đó vào \"CHỌN MẪU AUDIO\". Upload audio lỗi → bỏ qua, ghi notes.",
+      "Bước 1 tiếp: \"NGÔN NGỮ KỊCH BẢN\" = Tiếng Việt (Việt Nam); \"VIDEO MODEL\" = Gemini Omni 1.1 (giữ mặc định; Veo 3.1 cắt cảnh 10s về 8s); \"KÍCH THƯỚC VIDEO\" 9:16/16:9/1:1.",
+      "Gán ảnh đầu vào: \"Chân dung nhân hiệu\" + \"Ảnh khác của nhân vật\" → bước 2 nút \"ẢNH THAM KHẢO\" (chọn nhiều, tối đa 5), rồi bấm ảnh chân dung để đặt làm ảnh chính (viền xanh + ✓); \"Ảnh nền\" → bước 3 \"Master Background\" nút \"Tải nền\". KHÔNG có ảnh chân dung thật → dừng, status \"blocked\" (không tự tạo người giả).",
+      "Bước 2: Giới tính, Độ tuổi (ô số), \"Khóa gương mặt\" = KHÓA (ô mô tả mặt bị khóa), Kiểu tóc, Màu tóc; \"Mẫu trang phục\" + \"Khóa trang phục\" (KHÓA = giữ đồ trong ảnh); \"Phụ kiện\" mặc định \"Kính gọng đen\" — xóa nếu người trong ảnh không đeo kính.",
+      "Bước 3: tab \"Cấu hình có sẵn\" (Địa điểm chính, Master Background, Thời điểm, Mood, Ánh sáng, Nhiệt độ màu, DoF, Thời tiết, Chuyển động môi trường) hoặc \"Cấu hình tự điền\"; khối \"Camera & Chuyển động\": Cách quay, Chuyển động NV, Cỡ cảnh, Chuyển động máy, ô \"Tính cách / Phong thái nhân vật\".",
+      "Bước 4: \"TẠO MẪU MASTER REFERENCE\" (1 ảnh) → ảnh mới thành ảnh chính; chụp màn hình so mặt với ảnh gốc.",
+      "Bước 5: textarea \"Dán kịch bản của bạn vào đây...\" → \"SẢN XUẤT\" (Tool tự chia cảnh theo câu, ≤30 từ/cảnh, 3 từ/giây). Bước 6 \"Bàn dựng phân cảnh\": mỗi cảnh có lời thoại, textarea \"AI Visualization Prompt\", nhãn \"x từ • ys\", nút \"TẠO VIDEO\"/\"TẠO LẠI\"; trên cùng \"SỬA KỊCH BẢN\" và \"TẠO TẤT CẢ\" (tạo lần lượt). Đủ video mọi cảnh → taki-flow-save ngay tại bước 6 (Tool không có nút ghép).",
+    ],
+  },
   "cooking-director": {
     skill: "flow-cooking-director-video", label: "Flow Cooking Director v2", minutes: 45, hint: "3 ảnh (chân dung người dẫn, món ăn, bao bì/góc bếp) + tên, giá, điểm nổi bật", toolUrl: null, uiMap: [],
     slots: [
@@ -110,7 +133,7 @@ export const FLOW_TOOLS = {
     slots: [{ role: "Nhân vật", label: "Ảnh chân dung", hint: "Chính diện, rõ mặt, 1 người", required: true }],
   },
 } as { [k: string]: { engine?: "flow" | "moneyprinter" | "liveportrait"; skill: string; label: string; /** Name the Tool itself shows, when the card label differs. */ toolTitle?: string; minutes: number; hint: string; toolUrl: string | null; uiMap: string[]; slots?: { role: string; label: string; hint: string; required?: boolean }[] } };
-export type FlowToolKey = "review-do-an-vat" | "review-thoi-trang" | "nguoi-que-so-sanh" | "cooking-director" | "cinematic" | "auto-video" | "portrait";
+export type FlowToolKey = "review-do-an-vat" | "review-thoi-trang" | "nguoi-que-so-sanh" | "nhan-hieu" | "cooking-director" | "cinematic" | "auto-video" | "portrait";
 export const engineOf = (tool: string) => FLOW_TOOLS[tool]?.engine ?? "flow";
 
 export const CreativeInput = z.object({
@@ -209,6 +232,10 @@ export function startVideoJob(bizId: string, raw: unknown, actor: string) {
   const engine = engineOf(input.tool);
   for (const p of [...(input.video?.materials ?? []), input.video?.drivingPath].filter(Boolean) as string[]) if (!existsSync(p)) throw new AppError("NO_FILE", `Không thấy tệp ${p}`);
   if (engine === "liveportrait" && !input.images.length) throw new AppError("NO_IMAGE", "Cần 1 ảnh chân dung rõ mặt");
+  if (engine === "flow") {
+    const missing = (FLOW_TOOLS[input.tool].slots ?? []).filter((s) => s.required && !input.images.some((i) => i.role === s.role));
+    if (missing.length) throw new AppError("NO_IMAGE", `Cần ảnh: ${missing.map((s) => s.label).join(", ")} (tải ở trang Sản xuất video)`);
+  }
   const job = insert("creative_job", { biz_id: bizId, tool: input.tool, title: input.title, input, status: "queued", step: engine === "flow" ? "Chờ trình duyệt rảnh" : "Chờ máy rảnh", log: [], source_content_id: input.sourceContentId ?? null });
   const workdir = join(DATA_DIR, "creative", job.id);
   mkdirSync(join(workdir, "clips"), { recursive: true });
