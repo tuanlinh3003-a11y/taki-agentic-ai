@@ -34,6 +34,7 @@ export function VideoFlow() {
   const vai = useApi<any>("video-ai/status");
   const setV = (p: any) => setForm((f: any) => ({ ...f, video: { ...f.video, ...p } }));
   const [confirm, setConfirm] = useState(false);
+  const [allJobs, setAllJobs] = useState(false); // list shows the 3 latest runs unless expanded
   const [busy, setBusy] = useState(false);
   const set = (p: any) => setForm((f: any) => ({ ...f, ...p }));
 
@@ -226,12 +227,17 @@ export function VideoFlow() {
           <Card title="Các lần sản xuất">
             {!jobs.data ? <Loading /> : !jobs.data.length ? <Empty>Chưa có video nào.</Empty> : (
               <div className="space-y-1">
-                {jobs.data.map((j) => (
+                {(allJobs ? jobs.data : jobs.data.slice(0, 3)).map((j) => (
                   <button key={j.id} onClick={() => setSelected(j.id)} className={cx("flex w-full items-center justify-between gap-2 rounded-xl p-2.5 text-left", j.id === current ? "bg-blue-500/10" : "hover:bg-soft")}>
                     <div className="min-w-0"><p className="truncate text-sm font-medium">{j.title}</p><p className="truncate text-xs text-muted">{j.step ?? j.error ?? ""} · {timeAgo(j.created_at)}</p></div>
                     <Badge tone={STATUS[j.status]?.[1]}>{j.status === "running" && <Loader2 className="h-3 w-3 animate-spin" />}{STATUS[j.status]?.[0] ?? j.status}</Badge>
                   </button>
                 ))}
+                {jobs.data.length > 3 && (
+                  <button onClick={() => setAllJobs((v) => !v)} className="w-full rounded-xl p-2 text-center text-xs font-medium text-blue-600 hover:bg-soft">
+                    {allJobs ? "Thu gọn" : `Xem tất cả (${jobs.data.length})`}
+                  </button>
+                )}
               </div>
             )}
           </Card>
