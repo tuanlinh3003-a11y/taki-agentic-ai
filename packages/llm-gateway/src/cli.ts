@@ -278,17 +278,24 @@ export async function runClaudeInTerminal(o: TerminalRunOptions): Promise<unknow
   const env: NodeJS.ProcessEnv = { ...childEnv(), ...(o.env ?? {}), TERM: "xterm-256color", COLUMNS: "160", LINES: "50", CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1" };
   delete env.CLAUDE_CODE_CHILD_SESSION; delete env.CLAUDE_CODE_ENTRYPOINT; delete env.CLAUDE_CODE_SSE_PORT;
   let child: ChildProcess;
-  if (o.mcpConfig) {
+  /** Headless run, or (resume) the same session continued after the CLI died mid-run (e.g. a dropped API connection). */
+  const spawnHeadless = (resume: boolean) => {
     const mcpFile = join(runDir, "mcp.json");
     writeFileSync(mcpFile, JSON.stringify(o.mcpConfig));
+    const prompt = resume
+      ? `Phiên trước bị ngắt giữa chừng (lỗi kết nối) và CHƯA có ${o.resultFile}. Kiểm tra lại trạng thái hiện tại (trình duyệt, tệp đã có) rồi làm TIẾP từ chỗ đang dở, không làm lại bước đã xong. Nếu không thể làm tiếp thì ghi ${o.resultFile} với status "failed"/"blocked" và lý do.`
+      : o.prompt;
     // Prompt FIRST: --allowedTools / --add-dir are variadic and would swallow a trailing positional prompt.
     const args = [
-      o.prompt, "-p", "--model", o.model, "--permission-mode", "dontAsk", "--session-id", sessionId, "--no-chrome",
+      prompt, "-p", "--model", o.model, "--permission-mode", "dontAsk", ...(resume ? ["--resume", sessionId] : ["--session-id", sessionId]), "--no-chrome",
       "--mcp-config", mcpFile, "--strict-mcp-config", "--setting-sources", "", "--append-system-prompt-file", systemFile,
       "--allowedTools", ...o.allowedTools, ...o.addDirs.flatMap((d) => ["--add-dir", d]),
     ];
     // Detached: survives an API restart (the job is re-attached through resultFile).
-    child = spawn(bin, args, { cwd: o.cwd, env, stdio: ["ignore", "ignore", "ignore"], detached: true });
+    return spawn(bin, args, { cwd: o.cwd, env, stdio: ["ignore", "ignore", "ignore"], detached: true });
+  };
+  if (o.mcpConfig) {
+    child = spawnHeadless(false);
   } else {
     // Prompt FIRST: --allowedTools / --add-dir are variadic and would swallow a trailing positional prompt.
     const claudeArgs = [
@@ -306,6 +313,7 @@ export async function runClaudeInTerminal(o: TerminalRunOptions): Promise<unknow
   const stop = () => { try { process.kill(-child.pid!, "SIGTERM"); } catch { /* gone */ } setTimeout(() => { try { process.kill(-child.pid!, "SIGKILL"); } catch { /* gone */ } }, 3000); };
   let exited = false;
   child.on("exit", () => { exited = true; });
+  let resumes = 0;
 
   const readSteps = transcriptReader(sessionId, o.onStep);
   const startedAt = Date.now();
@@ -319,7 +327,18 @@ export async function runClaudeInTerminal(o: TerminalRunOptions): Promise<unknow
       if (existsSync(o.resultFile)) {
         try { return JSON.parse(readFileSync(o.resultFile, "utf8")); } catch { /* still being written */ }
       }
-      if (exited) throw new AppError("AGENT_EXITED", "Phiên Claude kết thúc mà không ghi kết quả", 502);
+      if (exited) {
+        // Headless run died without a result (most often a dropped API connection): continue the same session, at most twice.
+        if (!o.mcpConfig || resumes >= 2 || Date.now() - startedAt > o.timeoutMs - 5 * 60_000) throw new AppError("AGENT_EXITED", "Phiên Claude kết thúc mà không ghi kết quả", 502);
+        resumes++;
+        o.onStep?.({ at: new Date().toISOString(), kind: "text", text: `Phiên Claude bị ngắt giữa chừng — tự nối lại phiên (lần ${resumes}/2)` });
+        await new Promise((r) => setTimeout(r, 15_000));
+        exited = false;
+        child = spawnHeadless(true);
+        child.on("exit", () => { exited = true; });
+        writeFileSync(join(runDir, "session.json"), JSON.stringify({ sessionId, pid: child.pid, startedAt: new Date().toISOString(), resumes }));
+        continue;
+      }
       await new Promise((r) => setTimeout(r, 3000));
     }
   } finally {

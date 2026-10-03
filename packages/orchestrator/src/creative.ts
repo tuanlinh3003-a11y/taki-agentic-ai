@@ -44,7 +44,7 @@ export const FLOW_TOOLS = {
     ],
   },
   "review-thoi-trang": {
-    skill: "flow-review-thoi-trang", label: "KOC FASHION – AI VIDEO STUDIO", minutes: 45,
+    skill: "flow-review-thoi-trang", label: "KOC FASHION – AI VIDEO STUDIO", modelNote: "", minutes: 45,
     hint: "Ảnh người mẫu/KOC + ảnh sản phẩm thời trang (thiếu thì AI tự tạo trên Flow), tên – chất liệu – màu, giá/ưu đãi, CTA",
     toolUrl: "https://flow.google.com/project/af2cb6c3-2519-40b3-ad29-58156bf9e264/tool/160aa62c-4027-46a9-a46a-7e5edb523c05",
     slots: [
@@ -67,7 +67,7 @@ export const FLOW_TOOLS = {
     ],
   },
   "nguoi-que-so-sanh": {
-    skill: "flow-nguoi-que-so-sanh", label: "Người que so sánh sản phẩm", toolTitle: "Storyboard Studio VN", minutes: 40,
+    skill: "flow-nguoi-que-so-sanh", label: "Người que so sánh sản phẩm", toolTitle: "Storyboard Studio VN", modelNote: "", minutes: 40,
     hint: "Sản phẩm A vs B + tiêu chí so sánh (giá, chất lượng, tiện lợi…), ảnh 2 sản phẩm, ảnh người que mẫu (thiếu thì AI tự tạo), giọng, CTA",
     toolUrl: "https://flow.google.com/project/af2cb6c3-2519-40b3-ad29-58156bf9e264/tool/7bf9f78b-cd78-4a29-9dc6-dc1ff72d1732",
     slots: [
@@ -89,6 +89,7 @@ export const FLOW_TOOLS = {
   },
   "nhan-hieu": {
     skill: "flow-video-nhan-hieu", label: "Video nhân hiệu · BrandUp", toolTitle: "BRANDUP STUDIO", minutes: 45,
+    modelNote: "VIDEO MODEL trong Tool: giữ \"Gemini Omni 1.1\" (KHÔNG chọn Google Veo 3.1). Chỉ khi Omni báo \"usage limit\" ở mọi cảnh mới thử Veo 3.1 một lần.",
     hint: "Ảnh chân dung rõ mặt của chính người xây nhân hiệu (bắt buộc) + chủ đề/quan điểm/câu chuyện thật, giọng (nam/nữ), bối cảnh, CTA",
     toolUrl: "https://flow.google.com/project/af2cb6c3-2519-40b3-ad29-58156bf9e264/tool/505263ff-28b6-4c01-a5df-8dc66a5da221",
     slots: [
@@ -132,7 +133,7 @@ export const FLOW_TOOLS = {
     engine: "liveportrait", skill: "", label: "Ảnh chân dung cử động", minutes: 5, hint: "1 ảnh chân dung rõ mặt + video biểu cảm mẫu (có sẵn hoặc tải lên) → LivePortrait làm ảnh cử động; có thể lồng giọng đọc", toolUrl: null, uiMap: [],
     slots: [{ role: "Nhân vật", label: "Ảnh chân dung", hint: "Chính diện, rõ mặt, 1 người", required: true }],
   },
-} as { [k: string]: { engine?: "flow" | "moneyprinter" | "liveportrait"; skill: string; label: string; /** Name the Tool itself shows, when the card label differs. */ toolTitle?: string; minutes: number; hint: string; toolUrl: string | null; uiMap: string[]; slots?: { role: string; label: string; hint: string; required?: boolean }[] } };
+} as { [k: string]: { engine?: "flow" | "moneyprinter" | "liveportrait"; skill: string; label: string; /** Name the Tool itself shows, when the card label differs. */ toolTitle?: string; /** Replaces the "use Veo model X" line when the skill fixes the model ("" = no line). */ modelNote?: string; minutes: number; hint: string; toolUrl: string | null; uiMap: string[]; slots?: { role: string; label: string; hint: string; required?: boolean }[] } };
 export type FlowToolKey = "review-do-an-vat" | "review-thoi-trang" | "nguoi-que-so-sanh" | "nhan-hieu" | "cooking-director" | "cinematic" | "auto-video" | "portrait";
 export const engineOf = (tool: string) => FLOW_TOOLS[tool]?.engine ?? "flow";
 
@@ -383,7 +384,7 @@ export async function runVideoJob(jobId: string) {
     input.images.length
       ? `ẢNH CỦA SẾP (ưu tiên dùng — KHÔNG tự tạo ảnh thay cho vai trò đã có; tải lên đúng ô của Tool bằng browser_file_upload):\n${input.images.map((i) => `- ${i.role}: ${i.path}`).join("\n")}${input.images.some((i) => /nhân vật|người/i.test(i.role)) ? "\nNgười trong ảnh nhân vật là NHÂN VẬT CHÍNH: giữ đúng khuôn mặt/trang phục này ở mọi cảnh." : ""}`
       : "Không có ảnh đầu vào (ảnh bắt buộc của Tool thì tự tạo trên Flow như hướng dẫn).",
-    `Nếu Tool có chọn model Veo: ${input.veoModel}.`,
+    tool.modelNote ?? `Nếu Tool có chọn model Veo: ${input.veoModel}.`,
     `Kênh sẽ đăng: ${input.channels.join(", ")} (dọc 9:16).`,
     `Hãy chạy toàn bộ skill trong Tool "${tool.label}" đến khi có final.mp4 đã ghép + chèn chữ, rồi ghi result.json.`,
   ].filter(Boolean).join("\n\n");
@@ -403,7 +404,7 @@ export async function runVideoJob(jobId: string) {
       allowedTools: [
         "mcp__flow", "Read", "Write", "Glob",
         "Bash(ffmpeg:*)", "Bash(ffprobe:*)", "Bash(taki-video-finish:*)", "Bash(taki-video-stt:*)",
-        "Bash(taki-flow-save:*)", "Bash(cp:*)", "Bash(mv:*)", "Bash(ls:*)", "Bash(mkdir:*)", "Bash(unzip:*)", "Bash(stat:*)",
+        "Bash(taki-flow-save:*)", "Bash(taki-tts:*)", "Bash(cp:*)", "Bash(mv:*)", "Bash(ls:*)", "Bash(mkdir:*)", "Bash(unzip:*)", "Bash(stat:*)",
       ],
       addDirs: [workdir, UPLOAD_DIR],
       onStep: (s) => { log.push(s); flush(); },

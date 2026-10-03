@@ -139,4 +139,9 @@ Tool tự chia cảnh theo câu, tối đa 30 từ/cảnh, khoảng 3 từ/giây
 - **Chuyển bước:** bước 1–4 chuyển bằng TIẾP TỤC / QUAY LẠI ở thanh dưới; bước 5 là SẢN XUẤT; bước 6 có "SỬA KỊCH BẢN" để quay về bước 5. Sửa kịch bản phải bấm SẢN XUẤT lại thì prompt từng cảnh mới cập nhật.
 - **Không tải được âm thanh tham chiếu:** bỏ qua, chạy tiếp và ghi chú "giọng có thể khác nhau giữa các cảnh".
 - **Lỗi "Lỗi tham số SDK…":** thường do thời lượng hoặc model không khớp. Đổi model về Gemini Omni 1.1 ở bước 1, quay lại bước 5 bấm SẢN XUẤT lại.
+- **Lỗi "Video generation service unavailable":** dịch vụ Flow quá tải tạm thời, không phải lỗi thao tác. Chờ 2–3 phút rồi bấm TẠO VIDEO lại từng cảnh lỗi, không bấm TẠO TẤT CẢ liên tục. Vẫn lỗi sau 2 lần thì dừng, status "blocked".
+- **Lỗi "You've reached your usage limit":** tài khoản Flow đã hết lượt cho model đang chọn. Thử lại không có tác dụng.
+  - Chỉ khi đang dùng Gemini Omni 1.1: đổi sang model còn lại ĐÚNG 1 lần. Quay về bước 1 bằng QUAY LẠI (không bấm RESET), đổi model, rồi TIẾP TỤC tới bước 5 bấm SẢN XUẤT lại để prompt cập nhật.
+  - Vẫn báo hết lượt → dừng, status "blocked", ghi rõ model nào hết lượt để Sếp chờ hạn mức mới hoặc nâng gói.
+- **Sau khi bị ngắt và tiếp tục lại:** chụp snapshot trước để biết Tool đang ở bước nào. Không làm lại Master Reference nếu ảnh chính vẫn còn.
 - Không kích hoạt hộp thoại alert/confirm của trình duyệt.
