@@ -43,9 +43,8 @@ Nguyên tắc:
 
 - **KHÓA GIỌNG NÓI:**
   - Lưu ý: ô "GIỌNG AI CHUẨN (GEMINI)" chỉ để hiển thị. Tool KHÔNG gửi giọng này khi tạo video.
-  - Muốn giọng đồng nhất giữa các cảnh, phải dùng **ÂM THANH THAM CHIẾU** → "CHỌN MẪU AUDIO" → hộp chọn media của Flow → tải lên tệp .mp3/.wav.
-  - Nếu có giọng thật của người đó (người dùng gửi), ưu tiên dùng.
-  - Nếu không có, tạo mẫu giọng 10–15 giây cùng giới tính và vùng miền, nội dung là 2–3 câu trong kịch bản.
+  - Muốn giọng đồng nhất giữa các cảnh, phải dùng **ÂM THANH THAM CHIẾU** → "CHỌN MẪU AUDIO" → hộp chọn âm thanh của Flow.
+  - Hộp này KHÔNG nhận tệp .mp3 tải lên (đã thử thực tế). Dùng chức năng **tạo giọng tùy chỉnh** trong hộp: mô tả giọng bằng lời (giới tính, vùng miền, độ tuổi, phong thái, ví dụ "giọng nam miền Bắc Việt Nam, khoảng 35 tuổi, điềm tĩnh, tự tin"), rồi chọn giọng vừa tạo. Ghi chú trong kết quả là giọng do Gemini tạo, không phải giọng thật.
   - Chọn ô "GIỌNG AI CHUẨN" cùng giới tính và vùng miền để giao diện khớp (Hồng Hạnh nữ Bắc, Minh Quân nam Bắc, Tú Anh nữ Nam, Gia Bảo nam Nam…).
 - **Khi có âm thanh tham chiếu:** Tool tạo video bằng các ảnh tham chiếu, không dùng ảnh chính làm khung đầu. Vì vậy ảnh tham chiếu phải rõ mặt, và chỉ nên để ảnh của đúng người đó.
 - **NGÔN NGỮ KỊCH BẢN:** Tiếng Việt (Việt Nam).
