@@ -1,6 +1,12 @@
 import { createSign } from "node:crypto";
 import type { CanonicalMetrics } from "@dotaka/contracts";
 import { ConnectorError, type AdRef, type Connector, type ImportedAd } from "./index.ts";
+import { graphAll, graphGet, graphPost } from "./meta/graph.ts";
+import { CONVERSION_EVENTS, OBJECTIVE, toObjective } from "./meta/objectives.ts";
+import { buildTargeting, estimateReach, listPixels, searchInterests, searchLocations, templateTargeting } from "./meta/targeting.ts";
+import { AdCreateError, activateBoost, cleanupPartial, createBoost, readDailyBudget, readStatus, storyIdOf, validateBoost, type BoostSpec, type CreatedAd } from "./meta/create.ts";
+import { FIT_LABEL, assessPosts, fetchPostsDetailed } from "./meta/posts.ts";
+import { CONVERSION_ACTIONS, RESULT_SETTING, countConversions, mapObjective } from "./meta/conversions.ts";
 
 /**
  * Live platform adapters. Each takes decrypted credentials (never logged) and speaks the
@@ -33,69 +39,55 @@ const ZERO_DECIMAL = new Set(["VND", "JPY", "KRW", "CLP", "ISK", "PYG", "TWD", "
 export const minorFactor = (cur = "VND") => (ZERO_DECIMAL.has(cur.toUpperCase()) ? 1 : 100);
 
 // =====================================================================================
-// Meta (Graph API)
+// Meta (Graph API) — transport, objectives, targeting, boost chain and post scoring live in ./meta/
+// (ported from TakiAcademy-AI/ads-os, whose write path was verified on real ad accounts).
 // =====================================================================================
-const GRAPH = () => `https://graph.facebook.com/${process.env.META_GRAPH_VERSION ?? "v23.0"}`;
-const RESULT_ACTIONS: Record<string, string[]> = {
-  messaging: ["onsite_conversion.messaging_conversation_started_7d"],
-  lead: ["lead", "onsite_conversion.lead_grouped", "offsite_conversion.fb_pixel_lead"],
-  purchase: ["purchase", "offsite_conversion.fb_pixel_purchase", "omni_purchase"],
-  link_click: ["link_click"],
-};
-
 export type MetaCreds = { access_token: string };
-async function graph(token: string, path: string, params: Record<string, unknown> = {}, method: "GET" | "POST" = "GET") {
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) if (v !== undefined) qs.set(k, typeof v === "string" ? v : JSON.stringify(v));
-  qs.set("access_token", token);
-  if (method === "GET") return http(`${GRAPH()}/${path}?${qs}`, { label: "Meta", method });
-  return http(`${GRAPH()}/${path}`, { label: "Meta", method, body: qs, headers: { "content-type": "application/x-www-form-urlencoded" } });
-}
-async function graphAll(token: string, path: string, params: Record<string, unknown>, maxPages = 10): Promise<any[]> {
-  const out: any[] = [];
-  let r = await graph(token, path, params);
-  for (let i = 0; i < maxPages; i++) {
-    out.push(...(r.data ?? []));
-    if (!r.paging?.next) break;
-    r = await http(r.paging.next, { label: "Meta" });
-  }
-  return out;
-}
 
 export async function metaTest(c: MetaCreds) {
-  const me = await graph(c.access_token, "me", { fields: "id,name" });
+  const me = await graphGet(c.access_token, "me", { fields: "id,name" });
   return { accountId: String(me.id), name: String(me.name ?? me.id) };
 }
 export async function metaDiscover(c: MetaCreds) {
   const [adAccounts, pages] = await Promise.all([
     graphAll(c.access_token, "me/adaccounts", { fields: "id,name,currency,account_status,business_name", limit: 200 }),
-    graphAll(c.access_token, "me/accounts", { fields: "id,name,category,access_token", limit: 200 }).catch(() => []),
+    graphAll(c.access_token, "me/accounts", { fields: "id,name,category,access_token", limit: 100 }, 5).catch(() => []),
   ]);
   return {
     adAccounts: adAccounts.map((a) => ({ externalId: String(a.id), name: String(a.name ?? a.id), currency: String(a.currency ?? "VND"), active: a.account_status === 1, business: a.business_name ?? null })),
     pages: pages.map((p) => ({ externalId: String(p.id), name: String(p.name), category: p.category ?? null, token: p.access_token as string | undefined })),
   };
 }
+/** Recent Page posts with an ads-os fitness verdict per objective (Tin nhắn / Tương tác / Chuyển đổi). */
 export async function metaPagePosts(pageId: string, pageToken: string, limit = 25) {
-  const r = await graph(pageToken, `${pageId}/posts`, { fields: "id,message,created_time,full_picture,permalink_url,status_type", limit });
-  return (r.data ?? []).map((p: any) => ({ externalId: String(p.id), text: String(p.message ?? "(không có chữ)"), createdAt: p.created_time, image: p.full_picture ?? null, permalink: p.permalink_url ?? null, kind: p.status_type ?? "post" }));
+  const { posts, note, medianEngagement } = assessPosts(await fetchPostsDetailed(pageToken, pageId, limit));
+  return posts.map((p) => ({
+    externalId: p.id, text: p.message || "(không có chữ)", createdAt: p.createdTime, image: p.image, permalink: p.permalink, kind: p.fitness.kind,
+    engagement: p.fitness.engagement, best: p.best, externalLink: p.fitness.externalLink,
+    fitness: Object.fromEntries(Object.entries(p.fitness.byObjective).map(([k, v]) => [k, { verdict: v.verdict, label: FIT_LABEL[v.verdict], reason: v.reason }])),
+    pageNote: note, medianEngagement,
+  }));
 }
+export { CONVERSION_EVENTS, OBJECTIVE as META_OBJECTIVES, buildTargeting, templateTargeting, estimateReach, searchInterests, searchLocations, listPixels, validateBoost };
 
-function metaResults(actions: { action_type: string; value: string }[] | undefined, resultAction: string) {
-  const want = RESULT_ACTIONS[resultAction] ?? RESULT_ACTIONS.messaging;
-  for (const t of want) {
-    const hit = actions?.find((a) => a.action_type === t);
-    if (hit) return Number(hit.value) || 0;
-  }
-  return 0;
+/** Template definition + post → the boost spec ads-os uses. */
+export function metaBoostSpec(spec: { accountExternalId: string; pageExternalId: string; postExternalId: string; name: string; dailyBudget: number; currency?: string; template?: any }): BoostSpec {
+  const t = spec.template ?? {};
+  return {
+    adAccountId: spec.accountExternalId, pageId: spec.pageExternalId, postId: storyIdOf(spec.pageExternalId, spec.postExternalId),
+    campaignName: spec.name, dailyBudget: spec.dailyBudget, minorFactor: minorFactor(spec.currency),
+    targeting: templateTargeting(t), objective: toObjective(t.objective), pixelId: t.pixelId ?? null, conversionEvent: t.conversionEvent ?? null,
+  };
 }
 
 export function metaConnector(c: MetaCreds, config: { result_action?: string }): Connector {
-  const resultAction = config.result_action ?? "messaging";
+  // "auto" (default): count results by each campaign's own objective, the ads-os way. Fixed settings kept for older connections.
+  const fixed = config.result_action && config.result_action !== "auto" ? RESULT_SETTING[config.result_action] ?? RESULT_SETTING.messaging : null;
   const toMetrics = (r: any): CanonicalMetrics => ({
     spend: Math.round(Number(r.spend ?? 0)), impressions: Number(r.impressions ?? 0), clicks: Number(r.clicks ?? 0),
-    results: metaResults(r.actions, resultAction), reach: Number(r.reach ?? 0),
+    results: countConversions(r.actions, fixed ?? CONVERSION_ACTIONS[mapObjective(r.objective)] ?? CONVERSION_ACTIONS.messages).count, reach: Number(r.reach ?? 0),
   });
+  const token = c.access_token;
   return {
     platform: "meta", mode: "live", limits: { requestsPerMinute: 60, concurrency: 2 },
     async health() {
@@ -103,18 +95,18 @@ export function metaConnector(c: MetaCreds, config: { result_action?: string }):
       return { ok: true, detail: `Token hợp lệ (${me.name})` };
     },
     async fetchAdMetrics(ad: AdRef, day: string) {
-      const r = await graph(c.access_token, `${ad.externalId}/insights`, { fields: "spend,impressions,clicks,reach,actions", time_range: { since: day, until: day } });
+      const r = await graphGet(token, `${ad.externalId}/insights`, { fields: "spend,impressions,clicks,reach,actions,objective", time_range: { since: day, until: day } });
       return r.data?.[0] ? toMetrics(r.data[0]) : { spend: 0, impressions: 0, clicks: 0, results: 0, reach: 0 };
     },
     async fetchAccountMetrics(accountExternalId, since, until) {
-      const rows = await graphAll(c.access_token, `${accountExternalId}/insights`, {
-        level: "ad", fields: "ad_id,spend,impressions,clicks,reach,actions", time_range: { since, until }, time_increment: 1, limit: 500,
+      const rows = await graphAll(token, `${accountExternalId}/insights`, {
+        level: "ad", fields: "ad_id,spend,impressions,clicks,reach,actions,objective", time_range: { since, until }, time_increment: 1, limit: 500,
       }, 20);
       return rows.map((r) => ({ adExternalId: String(r.ad_id), day: String(r.date_start), metrics: toMetrics(r) }));
     },
     async listAds(accountExternalId, currency = "VND") {
       const f = minorFactor(currency);
-      const rows = await graphAll(c.access_token, `${accountExternalId}/ads`, {
+      const rows = await graphAll(token, `${accountExternalId}/ads`, {
         fields: "id,name,effective_status,adset{id,name,daily_budget},campaign{id,name,objective,daily_budget,effective_status}",
         filtering: [{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED"] }], limit: 200,
       });
@@ -130,37 +122,42 @@ export function metaConnector(c: MetaCreds, config: { result_action?: string }):
       });
     },
     async updateStatus(ad, status) {
-      await graph(c.access_token, ad.externalId, { status: status === "active" ? "ACTIVE" : "PAUSED" }, "POST");
+      const want = status === "active" ? "ACTIVE" : "PAUSED";
+      await graphPost(token, ad.externalId, { status: want });
+      // Trust the data, not the write response (ads-os): a null read is tolerated, a different status is not.
+      const now = await readStatus(token, ad.externalId);
+      if (now && now !== want) throw new ConnectorError("InvalidRequest", `Meta: đã gửi lệnh ${want === "ACTIVE" ? "bật" : "tắt"} nhưng đọc lại thấy trạng thái ${now}`);
       return { ok: true };
     },
     async updateBudget(ad, amount) {
       const owner = ad.meta?.budgetOwnerId;
       if (!owner) throw new ConnectorError("InvalidRequest", "Quảng cáo này không có ngân sách ngày ở nhóm/chiến dịch (có thể dùng ngân sách trọn đời)");
-      await graph(c.access_token, owner, { daily_budget: String(Math.round(amount * minorFactor(ad.meta?.currency))) }, "POST");
+      const value = Math.round(amount * minorFactor(ad.meta?.currency));
+      if (!(value > 0)) throw new ConnectorError("InvalidRequest", "Ngân sách phải lớn hơn 0");
+      await graphPost(token, owner, { daily_budget: String(value) });
+      const now = await readDailyBudget(token, owner);
+      if (now != null && now !== value) throw new ConnectorError("InvalidRequest", `Meta: đã gửi ngân sách ${value} nhưng đọc lại thấy ${now}`);
       return { ok: true };
     },
     async createAdFromPost(spec) {
-      const act = spec.accountExternalId;
-      if (!act || !spec.pageExternalId) throw new ConnectorError("InvalidRequest", "Thiếu tài khoản quảng cáo hoặc Fanpage");
-      const t = (spec.template ?? {}) as any;
-      const status = spec.startPaused ? "PAUSED" : "ACTIVE";
-      const objective = t.objective ?? "messages";
-      const goal = objective === "traffic" ? { campaign: "OUTCOME_TRAFFIC", optimization_goal: "LINK_CLICKS" }
-        : objective === "engagement" ? { campaign: "OUTCOME_ENGAGEMENT", optimization_goal: "POST_ENGAGEMENT", destination_type: "ON_POST" }
-        : { campaign: "OUTCOME_ENGAGEMENT", optimization_goal: "CONVERSATIONS", destination_type: "MESSENGER" };
-      const aud = t.audience ?? {};
-      const cmp = await graph(c.access_token, `${act}/campaigns`, { name: spec.name, objective: goal.campaign, status, special_ad_categories: [], is_adset_budget_sharing_enabled: false }, "POST");
-      const adset = await graph(c.access_token, `${act}/adsets`, {
-        name: spec.name, campaign_id: cmp.id, status, billing_event: "IMPRESSIONS", optimization_goal: goal.optimization_goal,
-        ...(goal.destination_type ? { destination_type: goal.destination_type } : {}),
-        bid_strategy: "LOWEST_COST_WITHOUT_CAP", daily_budget: String(Math.round(spec.dailyBudget * minorFactor(spec.currency))),
-        promoted_object: { page_id: spec.pageExternalId },
-        targeting: { geo_locations: { countries: aud.locations?.length ? aud.locations : ["VN"] }, age_min: aud.ageMin ?? 18, age_max: aud.ageMax ?? 65, ...(aud.genders?.length ? { genders: aud.genders } : {}), targeting_automation: { advantage_audience: 1 } },
-      }, "POST");
-      const storyId = spec.postExternalId.includes("_") ? spec.postExternalId : `${spec.pageExternalId}_${spec.postExternalId}`;
-      const creative = await graph(c.access_token, `${act}/adcreatives`, { name: spec.name, object_story_id: storyId }, "POST");
-      const ad = await graph(c.access_token, `${act}/ads`, { name: spec.name, adset_id: adset.id, creative: { creative_id: creative.id }, status }, "POST");
-      return { externalId: String(ad.id), campaignExternalId: String(cmp.id), meta: { adsetId: adset.id, budgetOwner: "adset", budgetOwnerId: adset.id, currency: spec.currency ?? "VND" } };
+      if (!spec.accountExternalId || !spec.pageExternalId) throw new ConnectorError("InvalidRequest", "Thiếu tài khoản quảng cáo hoặc Fanpage");
+      const boost = metaBoostSpec({ ...spec, accountExternalId: spec.accountExternalId, pageExternalId: spec.pageExternalId });
+      let created: CreatedAd;
+      try {
+        created = await createBoost(token, boost);
+      } catch (e) {
+        if (e instanceof AdCreateError) await cleanupPartial(token, e.created);
+        throw e;
+      }
+      const meta = { adsetId: created.adsetId, creativeId: created.creativeId, budgetOwner: "adset", budgetOwnerId: created.adsetId, currency: spec.currency ?? "VND", objective: boost.objective };
+      if (spec.startPaused) return { externalId: created.adId, campaignExternalId: created.campaignId, status: "paused", meta };
+      // Started on request: the chain exists (paused), now switch it on. If that fails the ad stays paused — reported, not hidden.
+      try {
+        const st = await activateBoost(token, created);
+        return { externalId: created.adId, campaignExternalId: created.campaignId, status: st && st !== "ACTIVE" ? "paused" : "active", meta };
+      } catch (e) {
+        return { externalId: created.adId, campaignExternalId: created.campaignId, status: "paused", meta: { ...meta, activationError: e instanceof Error ? e.message : String(e) } };
+      }
     },
   };
 }

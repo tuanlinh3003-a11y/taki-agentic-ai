@@ -2,7 +2,7 @@ import { audit, emit, insert, q, update, type Row } from "@dotaka/db";
 import { sendTelegram } from "@dotaka/connectors";
 import { handleIncoming, runFollowUps } from "@dotaka/chat-engine";
 import { formatVnd, logger, nowIso } from "@dotaka/shared";
-import { runAllRules, executeAction, publishCandidate, startAdsReport, syncAdMetrics, latestDaily, sumMetrics, today } from "./ads.ts";
+import { runAllRules, executeAction, publishCandidate, startAdsReport, syncAdMetrics, scheduledAdSync, latestDaily, sumMetrics, today } from "./ads.ts";
 import { expireApprovals } from "./approvals.ts";
 import { learnDaily } from "./learning.ts";
 import { engineOf, reattachVideoJob, runDraftUpload, runLocalVideoJob, runVideoJob } from "./creative.ts";
@@ -59,7 +59,7 @@ export const HANDLERS: Record<string, Handler> = {
   "candidate.publish": async (p, job) => publishCandidate(job.biz_id, p.candidateId),
   "action.execute": async (p) => executeAction(p.actionId),
   // scheduled
-  "metrics.sync.ads": async (p) => void (await syncAdMetrics(p.bizId)),
+  "metrics.sync.ads": async (p) => void (await scheduledAdSync(p.bizId)),
   "rules.evaluate": async (p) => runAllRules(p.bizId),
   "chat.followup": async (p) => { await runFollowUps(p.bizId); await runZaloFollowUps(p.bizId); },
   "zalo.sync": async (p) => void (await syncZalo(p.bizId)),

@@ -2,7 +2,7 @@ import { RuleDefinition, type CanonicalMetrics } from "@dotaka/contracts";
 import { audit, bizSettings, byId, emit, insert, isKilled, q, tx, update, type Row } from "@dotaka/db";
 import { sendTelegram, type PlatformKey } from "@dotaka/connectors";
 import { adRefOf, connectorForAccount } from "./connections.ts";
-import { describeAction, evaluateRule, type RuleEntity } from "@dotaka/rule-engine";
+import { DEFAULT_ATTRIBUTION, describeAction, evaluateRule, measureAttributionLag, suggestAttributionDays, type AttributionOptions, type MetricRevision, type RuleEntity } from "@dotaka/rule-engine";
 import { AppError, nowIso } from "@dotaka/shared";
 import { PermanentError, enqueue } from "./queue.ts";
 
@@ -25,15 +25,26 @@ export async function syncAdMetrics(bizId: string, day = today(), opts: { since?
         // One call per account; days with no delivery come back empty -> write zeros so "today" is not stale.
         const rows = await c.fetchAccountMetrics(acc.external_id, since, day);
         const byExt = new Map(ads.map((a) => [a.external_id, a]));
+        // Snapshots are a revision history (ads-os ad_metric_revision): write only when the numbers changed, so
+        // re-pulling past days records late conversions without bloating the table — and the history measures
+        // the account's real attribution window.
+        const last = new Map(q.all<Row>(
+          `SELECT entity_id, day, metrics FROM metric_snapshot s WHERE biz_id = ? AND entity_type = 'ad' AND day BETWEEN ? AND ?
+             AND entity_id IN (${ads.map(() => "?").join(",")})
+             AND captured_at = (SELECT MAX(captured_at) FROM metric_snapshot x WHERE x.entity_id = s.entity_id AND x.day = s.day)`,
+          bizId, since, day, ...ads.map((a) => a.id),
+        ).map((r) => [`${r.entity_id}:${r.day}`, r.metrics]));
+        const same = (a: any, b: any) => !!a && !!b && ["spend", "impressions", "clicks", "results", "reach"].every((k) => Number(a[k] ?? 0) === Number(b[k] ?? 0));
         const seen = new Set<string>();
         for (const r of rows) {
           const ad = byExt.get(r.adExternalId);
           if (!ad) continue;
           seen.add(`${ad.id}:${r.day}`);
+          if (same(last.get(`${ad.id}:${r.day}`), r.metrics)) continue;
           insert("metric_snapshot", { biz_id: bizId, entity_type: "ad", entity_id: ad.id, day: r.day, metrics: r.metrics, source: ad.platform, captured_at: nowIso() });
           n++;
         }
-        for (const ad of ads) if (!seen.has(`${ad.id}:${day}`)) insert("metric_snapshot", { biz_id: bizId, entity_type: "ad", entity_id: ad.id, day, metrics: { spend: 0, impressions: 0, clicks: 0, results: 0, reach: 0 }, source: ad.platform, captured_at: nowIso() });
+        for (const ad of ads) if (!seen.has(`${ad.id}:${day}`) && !last.has(`${ad.id}:${day}`)) insert("metric_snapshot", { biz_id: bizId, entity_type: "ad", entity_id: ad.id, day, metrics: { spend: 0, impressions: 0, clicks: 0, results: 0, reach: 0 }, source: ad.platform, captured_at: nowIso() });
       } else {
         for (let d = new Date(`${since}T00:00:00Z`); today(d) <= day; d = new Date(d.getTime() + 86400_000)) {
           for (const ad of ads) {
@@ -55,6 +66,18 @@ export async function syncAdMetrics(bizId: string, day = today(), opts: { since?
   return n;
 }
 
+/**
+ * Scheduled sync (every 15 min): today only, plus — at most once an hour — the last 7 days again, because
+ * Facebook keeps revising past days as late conversions arrive. Without the re-pull, 3d/7d CPA stays frozen at
+ * its worst and the guard has no history to measure the attribution window from.
+ */
+const lastBackfill = new Map<string, number>();
+export async function scheduledAdSync(bizId: string) {
+  if (Date.now() - (lastBackfill.get(bizId) ?? 0) < 3600_000) return syncAdMetrics(bizId);
+  lastBackfill.set(bizId, Date.now());
+  return syncAdMetrics(bizId, today(), { since: daysAgo(7) });
+}
+
 /** metric_latest: newest snapshot per (entity, day). */
 export function latestDaily(bizId: string, entityId: string, fromDay: string, toDay = today()): { day: string; metrics: CanonicalMetrics }[] {
   return q.all<Row>(
@@ -70,16 +93,46 @@ export function sumMetrics(rows: { metrics: CanonicalMetrics }[]): CanonicalMetr
   }), { spend: 0, impressions: 0, clicks: 0, results: 0, reach: 0 } as CanonicalMetrics);
 }
 
+/**
+ * Attribution window for the guard: biz setting `adsAttribution` ({enabled, days, minConversions, minClicks}),
+ * else measured from the revision history (95% of final conversions reported), else ads-os's default of 7 days.
+ */
+const measured = new Map<string, { at: number; days: number | null; samples: number }>();
+export function attributionInfo(bizId: string) {
+  const hit = measured.get(bizId);
+  if (hit && Date.now() - hit.at < 6 * 3600_000) return hit;
+  const rows = q.all<Row>(
+    `SELECT entity_id, day, captured_at, json_extract(metrics, '$.results') results FROM metric_snapshot
+      WHERE biz_id = ? AND entity_type = 'ad' AND day >= ? ORDER BY captured_at`, bizId, daysAgo(45));
+  const revs: MetricRevision[] = rows.map((r) => ({ seriesId: r.entity_id, date: r.day, fetchedAt: r.captured_at, conversions: Number(r.results ?? 0) }));
+  const curve = measureAttributionLag(revs);
+  const info = { at: Date.now(), days: suggestAttributionDays(curve), samples: curve.reduce((a, p) => a + p.samples, 0), curve };
+  measured.set(bizId, info);
+  return info;
+}
+export function attributionOptions(bizId: string): AttributionOptions | undefined {
+  const cfg = ((bizSettings(bizId) as any).adsAttribution ?? {}) as { enabled?: boolean; days?: number; minConversions?: number; minClicks?: number };
+  if (cfg.enabled === false) return undefined;
+  return {
+    attributionDays: cfg.days ?? attributionInfo(bizId).days ?? DEFAULT_ATTRIBUTION.attributionDays,
+    minConversions: cfg.minConversions ?? DEFAULT_ATTRIBUTION.minConversions,
+    minClicks: cfg.minClicks ?? DEFAULT_ATTRIBUTION.minClicks,
+    today: today(),
+  };
+}
+
 function loadEntities(bizId: string): RuleEntity[] {
   // Whitelist: automation only touches ads in whitelisted ad accounts.
   return q.all<Row>("SELECT a.*, c.target_cpa, c.name campaign_name FROM ad a LEFT JOIN campaign c ON c.id = a.campaign_id JOIN ad_account x ON x.id = a.ad_account_id WHERE a.biz_id = ? AND x.whitelisted = 1", bizId).map((ad) => {
-    const hist = latestDaily(bizId, ad.id, daysAgo(6));
+    const month = latestDaily(bizId, ad.id, daysAgo(29));
+    const hist = month.filter((h) => h.day >= daysAgo(6));
     const t = hist.filter((h) => h.day === today());
     return {
       id: ad.id, name: ad.name, platform: ad.platform, level: "ad", status: ad.status, dailyBudget: ad.daily_budget,
       metrics: { today: sumMetrics(t), "3d": sumMetrics(hist.filter((h) => h.day >= daysAgo(2))), "7d": sumMetrics(hist) },
       dailyHistory: hist.map((h) => h.metrics), refs: { target_cpa: ad.target_cpa }, cooldownUntil: ad.cooldown_until,
       attrs: { account: ad.ad_account_id, campaign: ad.campaign_name },
+      dailyRows: month.map((h) => ({ day: h.day, spend: h.metrics.spend, results: h.metrics.results, clicks: h.metrics.clicks })),
     };
   });
 }
@@ -95,7 +148,7 @@ export async function runRule(bizId: string, ruleId: string, opts: { forceDryRun
   def.budgetGuard.maxTotalDailyBudget = Math.min(def.budgetGuard.maxTotalDailyBudget, settings.caps.maxTotalDailyAdBudget);
   const actionsToday = q.scalar<number>("SELECT COUNT(*) FROM action WHERE biz_id = ? AND actor = 'rule' AND status IN ('done','queued','approved') AND created_at >= ?", bizId, `${today()}T00:00:00`);
   const totalDailyBudget = entities.filter((e) => e.status === "active").reduce((a, e) => a + (e.dailyBudget ?? 0), 0);
-  const res = evaluateRule(def, entities, { now: new Date(), actionsToday, totalDailyBudget });
+  const res = evaluateRule(def, entities, { now: new Date(), actionsToday, totalDailyBudget, attribution: attributionOptions(bizId) });
 
   const cfg = q.get<Row>("SELECT autonomy FROM agent_config WHERE biz_id = ? AND agent_key = 'ads'", bizId);
   const lines = res.actions.map(describeAction);
@@ -250,16 +303,18 @@ export async function publishCandidate(bizId: string, candidateId: string) {
     update("ad_candidate", cand.id, { status: "failed", decision_note: e instanceof Error ? e.message : String(e) });
     throw new PermanentError(e instanceof Error ? e.message : String(e));
   }
-  const adStatus = opts.startPaused ? "paused" : "active";
+  // Live Meta reports what actually happened (created paused, then switched on unless asked to stay paused).
+  const adStatus = res.status ?? (opts.startPaused ? "paused" : "active");
+  const activationError = (res.meta as any)?.activationError as string | undefined;
   tx(() => {
     let campaign = q.get<Row>("SELECT id FROM campaign WHERE ad_account_id = ? AND external_id = ?", account.id, res.campaignExternalId);
     if (!campaign) campaign = insert("campaign", { biz_id: bizId, ad_account_id: account.id, platform, external_id: res.campaignExternalId, name: `Từ bài: ${post.title.slice(0, 40)}`, objective: tpl?.definition?.objective ?? "messages", status: adStatus, daily_budget: cand.daily_budget, target_cpa: tpl?.definition?.targetCpa ?? null });
     const ad = q.get<Row>("SELECT id FROM ad WHERE ad_account_id = ? AND external_id = ?", account.id, res.externalId)
       ?? insert("ad", { biz_id: bizId, ad_account_id: account.id, platform, external_id: res.externalId, campaign_id: campaign.id, name, status: adStatus, daily_budget: cand.daily_budget, post_id: post.id, currency: account.currency, meta: res.meta ?? {} });
     insert("post_ad_link", { biz_id: bizId, post_id: post.id, ad_id: ad.id });
-    update("ad_candidate", cand.id, { status: "published", ad_id: ad.id });
+    update("ad_candidate", cand.id, { status: "published", ad_id: ad.id, ...(activationError ? { decision_note: `Đã tạo nhưng chưa bật được (đang tạm dừng): ${activationError}` } : {}) });
     update("post", post.id, { ad_status: adStatus === "active" ? "running" : "none" });
-    insert("action", { biz_id: bizId, actor: "agent", type: "create_ad_from_post", target_type: "ad", target_id: ad.id, params: { candidateId: cand.id }, before: {}, after: { status: "active", daily_budget: cand.daily_budget }, status: "done", reason: "Đề xuất đã được duyệt", reversible: 1, idempotency_key: `create:${cand.id}` });
+    insert("action", { biz_id: bizId, actor: "agent", type: "create_ad_from_post", target_type: "ad", target_id: ad.id, params: { candidateId: cand.id }, before: {}, after: { status: adStatus, daily_budget: cand.daily_budget }, status: "done", reason: activationError ? `Đã tạo (tạm dừng) — chưa bật được: ${activationError}` : "Đề xuất đã được duyệt", reversible: 1, idempotency_key: `create:${cand.id}` });
   });
   audit(bizId, "ads", "ad.created_from_post", { type: "ad_candidate", id: cand.id }, { name });
   emit(bizId, "action.executed", { type: "create_ad_from_post", target: name });

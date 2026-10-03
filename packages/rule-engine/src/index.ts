@@ -1,4 +1,6 @@
 import type { CanonicalMetrics, ConditionTree, RuleCondition, RuleDefinition } from "@dotaka/contracts";
+import { assessCpa, type AttributionOptions, type CpaAssessment, type DayRow } from "./attribution.ts";
+export * from "./attribution.ts";
 
 /**
  * Deterministic rule evaluator (spec §8). Pure: no I/O, no model calls.
@@ -20,6 +22,8 @@ export interface RuleEntity {
   /** String attributes filters can match on besides the name (account = ad_account id, campaign = campaign name). */
   attrs?: Record<string, string | null | undefined>;
   cooldownUntil?: string | null;
+  /** Latest numbers per day (~30 days) for the attribution guard. */
+  dailyRows?: DayRow[];
 }
 
 export interface EvalContext {
@@ -27,6 +31,11 @@ export interface EvalContext {
   actionsToday: number;
   /** Sum of daily budgets of all active entities in scope (for maxTotalDailyBudget). */
   totalDailyBudget: number;
+  /**
+   * "Không tắt oan" (ads-os): pausing or cutting budget because of CPA is only allowed when CPA on SETTLED days
+   * (older than the attribution window) is still over the threshold. Absent = guard off.
+   */
+  attribution?: AttributionOptions;
 }
 
 export interface ProposedAction {
@@ -142,6 +151,23 @@ function inScope(def: RuleDefinition, e: RuleEntity): boolean {
   });
 }
 
+const CPA_METRICS = new Set(["cpa", "cost_per_result"]);
+function cpaConds(t: RuleCondition | ConditionTree, out: RuleCondition[] = []): RuleCondition[] {
+  if (isCond(t)) { if (CPA_METRICS.has(t.metric) && (t.op === ">" || t.op === ">=")) out.push(t); return out; }
+  for (const n of t.all ?? t.any ?? []) cpaConds(n, out);
+  return out;
+}
+/** The guard verdict for one entity, or null when the rule is not a "CPA too high" rule (or the guard is off). */
+export function attributionGuard(def: RuleDefinition, e: RuleEntity, ctx: EvalContext): CpaAssessment | null {
+  if (!ctx.attribution) return null;
+  const conds = cpaConds(def.conditions);
+  if (!conds.length) return null;
+  // Threshold the rule itself uses (literal value or target × factor); the strictest one wins.
+  const targets = conds.map((c) => threshold(c, e)).filter((v): v is number => v != null && v > 0);
+  if (!targets.length) return null;
+  return assessCpa(e.dailyRows ?? [], Math.min(...targets), ctx.attribution);
+}
+
 export function evaluateRule(def: RuleDefinition, entities: RuleEntity[], ctx: EvalContext): EvalResult {
   const out: EvalResult = { evaluated: 0, matched: 0, actions: [], skipped: [] };
   const g = def.budgetGuard;
@@ -173,7 +199,10 @@ export function evaluateRule(def: RuleDefinition, entities: RuleEntity[], ctx: E
       continue;
     }
     out.matched++;
-    const reason = r.reasons.join(" và ");
+    let reason = r.reasons.join(" và ");
+    const guard = attributionGuard(def, e, ctx);
+    if (guard?.verdict === "over") reason += ` — ${guard.reason}`;
+    const held = guard && (guard.verdict === "holding" || guard.verdict === "saved") ? guard.reason : undefined;
 
     for (const a of def.actions) {
       const base = { entityId: e.id, entityName: e.name, reason };
@@ -208,6 +237,12 @@ export function evaluateRule(def: RuleDefinition, entities: RuleEntity[], ctx: E
         p = { ...base, type: "notify", params: { channel: a.channel ?? "telegram" }, before: {}, after: {}, reversible: false };
       }
       if (!p) continue;
+      // Pausing / cutting budget on a CPA that conversions-still-arriving would fix = "tắt oan": blocked, logged.
+      if (held && !p.blocked && (p.type === "pause_ad" || (p.type === "update_budget" && Number(p.after.daily_budget) < Number(p.before.daily_budget)))) {
+        p.blocked = held;
+        if (p.type === "update_budget") totalBudget -= Number(p.after.daily_budget) - Number(p.before.daily_budget);
+      }
+      if (held && p.type === "notify") p.reason = `${p.reason} (${held})`;
       if (p.type !== "notify" && !p.blocked) {
         if (executable >= def.limits.maxActionsPerRun) p.blocked = `vượt ${def.limits.maxActionsPerRun} hành động/lần chạy`;
         else if (ctx.actionsToday + executable >= def.limits.maxActionsPerDay) p.blocked = `vượt ${def.limits.maxActionsPerDay} hành động/ngày`;

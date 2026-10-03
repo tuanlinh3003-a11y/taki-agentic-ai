@@ -20,6 +20,7 @@ export const PLATFORMS: PlatformDef[] = [
     fields: [
       { key: "access_token", label: "Access token", type: "password", secret: true, required: true, placeholder: "EAAG...", help: "Nên dùng token System User (Business Manager) để không hết hạn." },
       { key: "result_action", label: "Tính 'kết quả' theo", type: "select", options: [
+        { value: "auto", label: "Tự động theo mục tiêu của từng chiến dịch (khuyên dùng)" },
         { value: "messaging", label: "Tin nhắn bắt đầu (Messenger)" }, { value: "lead", label: "Khách hàng tiềm năng (Lead form)" },
         { value: "purchase", label: "Mua hàng (Pixel)" }, { value: "link_click", label: "Lượt click liên kết" },
       ] },

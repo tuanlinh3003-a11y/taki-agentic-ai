@@ -9,6 +9,7 @@ import { effectiveProvider } from "@dotaka/llm-gateway";
 import {
   AUTOMATION_TYPES, automationCounts, createConnection, credsOf, deleteAutomation, disconnect, enqueue, importAds, publicAutomation, publicConnection,
   runAutomation, saveAutomation, setAutomationLive, setAutomationStatus, setWhitelist, syncAdMetrics, testConnection, today,
+  attributionInfo, attributionOptions, liveMetaToken,
 } from "@dotaka/orchestrator";
 import { AppError, decryptSecret, sha256 } from "@dotaka/shared";
 import { routes } from "../http.ts";
@@ -91,7 +92,7 @@ export function connectRoutes(app: FastifyInstance) {
     adAccounts: q.all("SELECT x.id, x.platform, x.name, x.external_id, x.whitelisted, c.mode FROM ad_account x LEFT JOIN connection c ON c.id = x.connection_id WHERE x.biz_id = ? AND x.status = 'active' ORDER BY x.name", bizId),
     ads: q.all("SELECT a.id, a.name, a.status, a.platform, a.daily_budget, a.ad_account_id, cp.name campaign FROM ad a LEFT JOIN campaign cp ON cp.id = a.campaign_id WHERE a.biz_id = ? ORDER BY cp.name, a.name", bizId),
     channels: q.all("SELECT id, platform, kind, name, whitelisted, connection_id FROM channel WHERE biz_id = ? AND enabled = 1 ORDER BY name", bizId),
-    templates: q.all("SELECT id, name, platform FROM ad_template WHERE biz_id = ? ORDER BY name", bizId),
+    templates: q.all("SELECT id, name, platform, definition FROM ad_template WHERE biz_id = ? ORDER BY name", bizId),
     sheets: q.all<Row>("SELECT id, display_name, mode, config FROM connection WHERE biz_id = ? AND platform = 'sheets' AND status != 'revoked'", bizId).map((c) => ({ id: c.id, name: c.display_name, mode: c.mode, defaultSpreadsheet: c.config?.default_spreadsheet ?? "" })),
     telegram: !!q.get("SELECT id FROM connection WHERE biz_id = ? AND platform = 'telegram' AND status = 'active'", bizId) || !!process.env.TELEGRAM_BOT_TOKEN,
   }));
@@ -126,14 +127,28 @@ export function connectRoutes(app: FastifyInstance) {
   const Template = z.object({
     name: z.string().min(1), platform: z.enum(["meta", "tiktok"]).default("meta"),
     definition: z.object({
-      objective: z.enum(["messages", "engagement", "traffic"]).default("messages"),
-      audience: z.object({ locations: z.array(z.string()).default(["VN"]), ageMin: z.number().int().min(13).max(65).default(25), ageMax: z.number().int().min(13).max(65).default(55), genders: z.array(z.number().int()).default([]), interests: z.array(z.string()).default([]) }).default({} as any),
+      objective: z.enum(["messages", "engagement", "sales", "traffic"]).default("messages"),
+      audience: z.object({
+        locations: z.array(z.string()).default(["VN"]), ageMin: z.number().int().min(13).max(65).default(25), ageMax: z.number().int().min(13).max(65).default(55),
+        genders: z.array(z.number().int().min(1).max(2)).default([]),
+        // Plain strings are notes for the Ads Agent; {id,name} (from the interest search) are sent to Facebook.
+        interests: z.array(z.union([z.string(), z.object({ id: z.string(), name: z.string() })])).default([]),
+        geo: z.array(z.object({ type: z.enum(["city", "region"]), key: z.string(), name: z.string() })).default([]),
+      }).default({} as any),
+      // ads-os fields: Chuyển đổi needs a pixel + event; Advantage+ audience on by default (age/gender become hints).
+      pixelId: z.string().nullable().default(null),
+      conversionEvent: z.string().nullable().default(null),
+      advantageAudience: z.boolean().default(true),
       budget: z.object({ type: z.literal("daily").default("daily"), amount: z.number().int().positive().default(1_000_000), currency: z.string().default("VND") }).default({} as any),
       targetCpa: z.number().int().positive().nullable().default(null),
       naming: z.string().default("{date}_{page}_{postId}_{template}"),
       cta: z.string().default("MESSAGE_PAGE"),
-      placements: z.string().default("auto"),
+      placements: z.union([z.literal("auto"), z.object({ automatic: z.boolean(), publisherPlatforms: z.array(z.string()).optional(), facebookPositions: z.array(z.string()).optional(), instagramPositions: z.array(z.string()).optional() })]).default("auto"),
       note: z.string().default(""),
+    }).superRefine((d, ctx) => {
+      if (d.objective !== "sales") return;
+      if (!d.pixelId) ctx.addIssue({ code: "custom", message: "Mục tiêu Chuyển đổi cần chọn pixel", path: ["pixelId"] });
+      else if (!live.CONVERSION_EVENTS.some((e) => e.value === d.conversionEvent)) ctx.addIssue({ code: "custom", message: "Mục tiêu Chuyển đổi cần chọn sự kiện chuyển đổi", path: ["conversionEvent"] });
     }),
   });
   r.get("/v1/ad-templates", ({ bizId }) => q.all<Row>("SELECT * FROM ad_template WHERE biz_id = ? ORDER BY created_at DESC", bizId).map((t) => ({
@@ -161,6 +176,64 @@ export function connectRoutes(app: FastifyInstance) {
     q.run("DELETE FROM ad_template WHERE id = ?", t.id);
     audit(bizId, actor, "ad_template.deleted", { type: "ad_template", id: t.id }, { name: t.name });
     return { ok: true };
+  });
+
+  // ---------------- Meta helpers ported from ads-os (pixels, targeting search, reach, validate_only) ----------------
+  const metaToken = (adAccountId: unknown) => {
+    const t = liveMetaToken(String(adAccountId ?? ""));
+    if (!t) throw new AppError("NOT_LIVE", "Cần tài khoản quảng cáo Facebook đã kết nối thật (không phải demo)");
+    return t;
+  };
+  r.get("/v1/ads/meta/options", () => ({ objectives: live.META_OBJECTIVES, conversionEvents: live.CONVERSION_EVENTS }));
+  r.get("/v1/ads/meta/pixels", async ({ query }) => {
+    const t = liveMetaToken(String(query.adAccountId ?? ""));
+    return t ? live.listPixels(t.token, t.acc.external_id) : [];
+  });
+  r.get("/v1/ads/meta/search", async ({ query }) => {
+    const { token } = metaToken(query.adAccountId);
+    const text = String(query.q ?? "").trim();
+    if (text.length < 2) return [];
+    return query.kind === "location" ? live.searchLocations(token, text, String(query.country ?? "VN")) : live.searchInterests(token, text);
+  });
+  r.post("/v1/ads/meta/estimate", async ({ bizId, body }) => {
+    const p = z.object({ adAccountId: z.string(), templateId: z.string().optional(), definition: z.any().optional() }).parse(body);
+    const { token, acc } = metaToken(p.adAccountId);
+    const tpl = p.templateId ? byId<Row>("ad_template", p.templateId) : null;
+    if (tpl && tpl.biz_id !== bizId) throw new AppError("NOT_FOUND", "Không tìm thấy mẫu", 404);
+    const def = tpl?.definition ?? p.definition ?? {};
+    const obj = live.META_OBJECTIVES[(def.objective in live.META_OBJECTIVES ? def.objective : "messages") as keyof typeof live.META_OBJECTIVES];
+    return live.estimateReach(token, acc.external_id, live.templateTargeting(def), obj.optimizationGoal);
+  });
+  /** "Kiểm tra trước": Facebook checks the campaign with validate_only — creates NOTHING. Partial check by design. */
+  r.post("/v1/ads/quick/check", async ({ bizId, body }) => {
+    const p = z.object({ adAccountId: z.string(), channelId: z.string(), templateId: z.string().nullable().default(null), dailyBudget: z.number().int().positive(), postExternalId: z.string(), name: z.string().optional() }).parse(body);
+    const t = liveMetaToken(p.adAccountId);
+    if (!t) return { ok: true, live: false, note: "Tài khoản demo — không cần kiểm tra với Facebook." };
+    const ch = byId<Row>("channel", p.channelId);
+    const tpl = p.templateId ? byId<Row>("ad_template", p.templateId) : null;
+    if (!ch || ch.biz_id !== bizId || (tpl && tpl.biz_id !== bizId)) throw new AppError("NOT_FOUND", "Không tìm thấy Fanpage hoặc mẫu", 404);
+    const spec = live.metaBoostSpec({ accountExternalId: t.acc.external_id, pageExternalId: ch.external_id, postExternalId: p.postExternalId, name: p.name || "Kiểm tra trước", dailyBudget: p.dailyBudget, currency: t.acc.currency, template: tpl?.definition });
+    try {
+      await live.validateBoost(t.token, spec);
+      return { ok: true, live: true, objective: spec.objective, note: "Facebook đã kiểm tra bước chiến dịch: hợp lệ. Đây là kiểm một phần (tài khoản, token, quyền tạo quảng cáo) — chưa bảo chứng cả chuỗi." };
+    } catch (e) {
+      return { ok: false, live: true, objective: spec.objective, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
+  // ---------------- "Không tắt oan": attribution window (ads-os) ----------------
+  r.get("/v1/ads/attribution", ({ bizId }) => {
+    const info: any = attributionInfo(bizId);
+    return { settings: (bizSettings(bizId) as any).adsAttribution ?? {}, effective: attributionOptions(bizId) ?? null, measuredDays: info.days, samples: info.samples, curve: info.curve ?? [] };
+  });
+  r.put("/v1/ads/attribution", ({ bizId, body, actor }) => {
+    const p = z.object({ enabled: z.boolean().optional(), days: z.number().int().min(0).max(30).nullable().optional(), minConversions: z.number().int().min(0).max(1000).optional(), minClicks: z.number().int().min(0).max(100000).optional() }).parse(body);
+    const s = bizSettings(bizId) as any;
+    const next = { ...(s.adsAttribution ?? {}), ...p };
+    if (next.days === null) delete next.days; // null = measure automatically again
+    update("biz", bizId, { settings: { ...s, adsAttribution: next } });
+    audit(bizId, actor, "ads.attribution_changed", { type: "biz", id: bizId }, next);
+    return { settings: next, effective: attributionOptions(bizId) ?? null };
   });
 
   // ---------------- Quick ad publish (Đăng quảng cáo nhanh) ----------------

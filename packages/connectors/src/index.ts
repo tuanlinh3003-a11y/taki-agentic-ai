@@ -38,7 +38,7 @@ export interface Connector {
   listAds?(accountExternalId: string, currency?: string): Promise<ImportedAd[]>;
   updateStatus?(ad: AdRef, status: "active" | "paused", key: string): Promise<{ ok: true }>;
   updateBudget?(ad: AdRef, amount: number, key: string): Promise<{ ok: true }>;
-  createAdFromPost?(spec: { postExternalId: string; name: string; dailyBudget: number; template: unknown; accountExternalId?: string; pageExternalId?: string; startPaused?: boolean; currency?: string }, key: string): Promise<{ externalId: string; campaignExternalId: string; meta?: Record<string, unknown> }>;
+  createAdFromPost?(spec: { postExternalId: string; name: string; dailyBudget: number; template: unknown; accountExternalId?: string; pageExternalId?: string; startPaused?: boolean; currency?: string }, key: string): Promise<{ externalId: string; campaignExternalId: string; status?: "active" | "paused"; meta?: Record<string, unknown> }>;
   publishPost?(spec: { channelExternalId: string; text: string; kind: string }, key: string): Promise<{ externalId: string; permalink: string }>;
   verifyPost?(externalId: string): Promise<boolean>;
   fetchPostMetrics?(post: PostRef, mark: "1h" | "6h" | "24h" | "72h"): Promise<{ reach: number; reactions: number; comments: number; shares: number; saves: number }>;
@@ -48,11 +48,9 @@ export interface Connector {
   uploadDraft?(spec: { channelExternalId: string; videoPath: string; caption: string }, key: string): Promise<{ externalId: string; draftUrl: string }>;
 }
 
-export class ConnectorError extends Error {
-  constructor(public kind: "AuthError" | "RateLimited" | "Transient" | "InvalidRequest" | "PolicyRejected" | "NotFound", message: string) {
-    super(message);
-  }
-}
+// Own module: meta/create.ts extends it at load time, which a circular import through this file would break.
+export { ConnectorError } from "./errors.ts";
+import { ConnectorError } from "./errors.ts";
 
 // ---------------- Sandbox implementations ----------------
 const done = new Map<string, unknown>(); // idempotency ledger (a real platform dedupes by key/name)

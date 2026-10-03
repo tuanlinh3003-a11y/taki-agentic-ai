@@ -196,6 +196,14 @@ export function connectorForAccount(accountId: string | null | undefined, platfo
   const conn = acc?.connection_id ? byId<Row>("connection", acc.connection_id) : undefined;
   return { c: connectorForConnection(conn, platform), acc, conn };
 }
+/** Token of the LIVE Meta connection an ad account belongs to, or null (sandbox / not connected). */
+export function liveMetaToken(accountId: string): { token: string; acc: Row } | null {
+  const acc = byId<Row>("ad_account", accountId);
+  const conn = acc?.connection_id ? byId<Row>("connection", acc.connection_id) : undefined;
+  if (!acc || acc.platform !== "meta" || !conn || conn.mode !== "live" || conn.status === "revoked") return null;
+  const token = credsOf(conn).access_token;
+  return token ? { token, acc } : null;
+}
 export function adRefOf(ad: Row, acc?: Row): AdRef {
   return { externalId: ad.external_id, dailyBudget: ad.daily_budget, status: ad.status, name: ad.name, accountExternalId: acc?.external_id, meta: ad.meta ?? {} };
 }

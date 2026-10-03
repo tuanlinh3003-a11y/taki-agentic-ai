@@ -1,0 +1,112 @@
+import { ConnectorError } from "../errors.ts";
+
+/**
+ * Graph API transport for Meta — ported from TakiAcademy-AI/ads-os (lib/ads/facebook*.ts), whose write path was
+ * verified against real ad accounts. Rules carried over:
+ *  - the token goes in the Authorization header, never in the URL (URLs end up in logs);
+ *  - Facebook answers some account errors with HTTP 200 + an `error` block (e.g. 31/3858385), so `error` is
+ *    checked BEFORE the status code;
+ *  - reads retry 5xx/network errors; writes are NEVER retried (the request may have landed and only the response
+ *    was lost — a retry could double-create or overwrite a change made by hand).
+ */
+export const GRAPH_VERSION = () => process.env.META_GRAPH_VERSION ?? process.env.FB_API_VERSION ?? "v23.0";
+const BASE = () => `https://graph.facebook.com/${GRAPH_VERSION()}`;
+const TIMEOUT = 25_000;
+
+export type GraphError = { message?: string; code?: number; error_subcode?: number; error_user_msg?: string; error_user_title?: string; type?: string };
+
+/**
+ * Guidance for errors only the user can clear by hand.
+ *
+ * 31/3858385 is Meta's security lock, not a payload or permission problem: it binds to the PERSON whose token is
+ * used. Verified in ads-os on 2026-10-01: same account and Reel — a person token fails at the ad step with
+ * 31/3858385, a System User token runs all four steps.
+ */
+export function fbActionHint(code?: number, subcode?: number): string | null {
+  if (code === 31 && subcode === 3858385) {
+    return "Meta đang tạm khoá quyền tạo/sửa quảng cáo để kiểm tra bảo mật. Khoá này bám vào TÀI KHOẢN FACEBOOK CỦA NGƯỜI tạo token, "
+      + "không phải tài khoản quảng cáo — đổi tài khoản quảng cáo hay nhờ người khác kết nối đều không gỡ được. "
+      + "CÁCH CHẮC ĂN NHẤT: dùng token System User — business.facebook.com/settings → Người dùng hệ thống → tạo (vai trò Quản trị viên) → "
+      + "Thêm tài sản: tài khoản quảng cáo (Quản lý chiến dịch) VÀ Trang (Quản lý Trang) → Tạo mã truy cập, tick ads_management, ads_read, "
+      + "business_management, pages_show_list, pages_read_engagement, pages_manage_ads → dán vào Trung tâm tích hợp → Facebook. "
+      + "CÁCH CÒN LẠI: đăng nhập đúng người đã tạo token → Ads Manager → mở sửa một nhóm quảng cáo → bấm \"Start authentication\". Đừng bấm thử lại liên tục.";
+  }
+  return null;
+}
+
+/** Turn a Graph `error` block into a ConnectorError with the most useful Vietnamese text. */
+export function graphError(e: GraphError, status: number, label = "Meta"): ConnectorError {
+  const hint = fbActionHint(e.code, e.error_subcode);
+  const code = e.code ? ` [mã ${e.code}${e.error_subcode ? `/${e.error_subcode}` : ""}]` : "";
+  const title = e.error_user_title ? `${e.error_user_title}: ` : "";
+  const text = hint ?? `${title}${e.error_user_msg || e.message || `HTTP ${status}`}`;
+  // 190 = token hỏng/hết hạn, 102 = phiên hết hạn, 10/200 = thiếu quyền → người dùng phải xử lý, không thử lại.
+  const kind = e.code === 190 || e.code === 102 || e.code === 10 || e.code === 200 ? "AuthError"
+    : e.code === 4 || e.code === 17 || e.code === 32 || e.code === 613 || e.code === 80004 ? "RateLimited"
+    : e.code === 31 || e.code === 368 ? "PolicyRejected"
+    : status >= 500 || e.code === 1 || e.code === 2 ? "Transient" : "InvalidRequest";
+  return new ConnectorError(kind, `${label}: ${text}${code}`);
+}
+
+async function call(method: "GET" | "POST" | "DELETE", url: string, token: string, body?: URLSearchParams) {
+  const res = await fetch(url, {
+    method, body,
+    headers: { Authorization: `Bearer ${token}`, ...(body ? { "content-type": "application/x-www-form-urlencoded" } : {}) },
+    signal: AbortSignal.timeout(TIMEOUT),
+  });
+  const text = await res.text();
+  let json: any = {};
+  try { json = JSON.parse(text); } catch { json = { _raw: text.slice(0, 200) }; }
+  // TRAP: HTTP 200 with an `error` block — check it first.
+  if (json?.error) throw graphError(typeof json.error === "string" ? { message: json.error } : json.error, res.status);
+  if (res.status === 429) throw new ConnectorError("RateLimited", "Meta: bị giới hạn tần suất, thử lại sau");
+  if (!res.ok) throw new ConnectorError(res.status >= 500 ? "Transient" : res.status === 401 || res.status === 403 ? "AuthError" : "InvalidRequest", `Meta: HTTP ${res.status}${json?._raw ? ` ${json._raw}` : ""}`);
+  return json;
+}
+
+const enc = (params: Record<string, unknown>) => {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null) qs.set(k, typeof v === "string" ? v : JSON.stringify(v));
+  return qs;
+};
+
+/** Read. Retries 5xx/network errors (1s, 2s); 4xx and error blocks throw at once. */
+export async function graphGet(token: string, path: string, params: Record<string, unknown> = {}): Promise<any> {
+  const url = path.startsWith("https://") ? path : `${BASE()}/${path}?${enc(params)}`;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await call("GET", url, token);
+    } catch (e) {
+      const transient = !(e instanceof ConnectorError) || e.kind === "Transient";
+      if (!transient || attempt >= 2) throw e instanceof ConnectorError ? e : new ConnectorError("Transient", `Meta: không kết nối được (${e instanceof Error ? e.message : e})`);
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+}
+
+/** Every page of a list endpoint. */
+export async function graphAll(token: string, path: string, params: Record<string, unknown>, maxPages = 10): Promise<any[]> {
+  const out: any[] = [];
+  let r = await graphGet(token, path, params);
+  for (let i = 0; i < maxPages; i++) {
+    out.push(...(r.data ?? []));
+    if (!r.paging?.next) break;
+    r = await graphGet(token, r.paging.next);
+  }
+  return out;
+}
+
+/** Write. NEVER retried; a network failure is reported as such so a human can check before trying again. */
+export async function graphPost(token: string, path: string, params: Record<string, unknown>): Promise<any> {
+  try {
+    return await call("POST", `${BASE()}/${path}`, token, enc(params));
+  } catch (e) {
+    if (e instanceof ConnectorError) throw e;
+    throw new ConnectorError("InvalidRequest", `Meta: lệnh ghi không nhận được phản hồi (${e instanceof Error ? e.message : e}) — kiểm tra trên Ads Manager trước khi thử lại`);
+  }
+}
+
+/** Delete — used ONLY to clean up objects this system created seconds earlier in a failed chain. */
+export async function graphDelete(token: string, path: string): Promise<void> {
+  await call("DELETE", `${BASE()}/${path}`, token).catch(() => {});
+}
