@@ -110,6 +110,26 @@ export const FLOW_TOOLS = {
       "Bước 5: textarea \"Dán kịch bản của bạn vào đây...\" → \"SẢN XUẤT\" (Tool tự chia cảnh theo câu, ≤30 từ/cảnh, 3 từ/giây). Bước 6 \"Bàn dựng phân cảnh\": mỗi cảnh có lời thoại, textarea \"AI Visualization Prompt\", nhãn \"x từ • ys\", nút \"TẠO VIDEO\"/\"TẠO LẠI\"; trên cùng \"SỬA KỊCH BẢN\" và \"TẠO TẤT CẢ\" (tạo lần lượt). Đủ video mọi cảnh → taki-flow-save ngay tại bước 6 (Tool không có nút ghép).",
     ],
   },
+  "koc-thoi-trang-nu": {
+    skill: "flow-koc-thoi-trang-nu", label: "KOC thời trang nữ · Studio v3", toolTitle: "KOC Fashion Studio v3", minutes: 45,
+    hint: "Ảnh sản phẩm thời trang nữ (bắt buộc, 1–3 món) + ảnh KOC và bối cảnh (thiếu thì AI tạo), tên – điểm nổi bật – giá/ưu đãi",
+    toolUrl: "https://flow.google.com/project/b8bbfcb1-c140-4d8f-955b-008d1138bb7f/tool/91a76ef9-7703-42d5-a264-7031a9b6a5f6",
+    slots: [
+      { role: "Sản phẩm SP1", label: "Sản phẩm chính (SP1)", hint: "Ô SP1 · ảnh thật rõ màu, hoạ tiết — bắt buộc", required: true },
+      { role: "KOC nữ", label: "KOC / người mẫu nữ", hint: "Ô KOC (mặt, tóc, dáng) · thiếu thì AI tạo người mẫu" },
+      { role: "Sản phẩm SP2", label: "Món phối thêm (SP2)", hint: "Ô SP2 · tuỳ chọn" },
+      { role: "Bối cảnh", label: "Background (bối cảnh)", hint: "Ô Background · thiếu thì AI tạo phòng/bối cảnh" },
+    ],
+    // Read from the Tool's own source on 2026-10-03 (shared tool 91a76ef9 "KOC Fashion Studio v3", account tuan0931579009).
+    uiMap: [
+      "Màn chào \"KOC FASHION / AI VIDEO STUDIO\" → \"Bắt đầu\". Tool KHÔNG lưu phiên (tải lại trang là mất hết). Cột trái: \"Model video\" (Veo 3.1 - Fast/Lite/Quality, Omni 1.1 Flash), \"Tỷ lệ khung hình (ảnh + video)\" 9:16/16:9, \"Âm thanh (áp cho tất cả cảnh)\"; các dropdown là nút tự vẽ (bấm giá trị hiện tại → bấm dòng chọn).",
+      "KHÔNG bấm \"Tạo full video 1 click\" (chạy liền không dừng soát ảnh, và tự ghép thêm một video thừa vào trang) và KHÔNG bấm \"Bắt đầu lại\". Chạy từng bước bằng các nút trong vùng làm việc.",
+      "Tải ảnh: 5 ô \"KOC (mặt / tóc / dáng)\", \"Sản phẩm SP1/SP2/SP3\", \"Background (bối cảnh)\" là <input type=file> TRONG iframe: browser_click ô → browser_file_upload đúng đường dẫn (không qua hộp Select media của Flow). Gán: \"Sản phẩm SP1\" → SP1, \"Sản phẩm SP2\" → SP2, \"KOC nữ\" → KOC, \"Bối cảnh\" → Background. Thiếu KOC/Background: về trang project tạo ảnh bằng trình tạo gốc của Flow (Image, 9:16, x1), khi ảnh hiện ra chạy taki-flow-save --images 4 --out <workdir>/inputs --prefix koc_ (hoặc bg_) — lưu tối đa 4 ảnh lớn đang hiện trên trang (trên → dưới, có cả ảnh trang trí) — Read từng tệp để chọn đúng ảnh vừa tạo, rồi quay lại Tool và browser_file_upload tệp đó vào ô; ghi notes là ảnh do AI tạo.",
+      "Ba ô chữ: \"Tên SP…\", \"Điểm nổi bật…\", \"Giá / ưu đãi…\". Nút theo thứ tự: tạo ảnh KOC gốc (cảnh 1) → tạo 5 ảnh selfie (cảnh 2–6) → viết kịch bản → tạo tất cả video. Mỗi thẻ cảnh: nút tạo lại ảnh, nút \"Dùng ảnh có sẵn\" (ảnh 9:16), textarea \"Prompt chuyển động (tiếng Anh)...\", nút bật/tắt thoại, textarea \"Câu thoại tiếng Việt (tối đa 16 từ)...\", nút tạo/tạo lại video.",
+      "Video: tối đa 2 cảnh song song, 8s/cảnh; Tool tự thử lại 5s/15s/30s → đổi model Veo dự phòng → bỏ thoại → rút gọn prompt (mỗi lần tốn tín dụng). Bảng \"Nhật ký tạo video\" cuối trang ghi model/kết quả từng lần. Đủ 6 cảnh có video → taki-flow-save NGAY (trước khi bấm \"Ghép full video\" — video ghép sẽ thành clip thừa).",
+      "Tool dùng hộp thoại alert/confirm của trình duyệt: khi có dialog, đọc nội dung bằng snapshot rồi browser_handle_dialog — accept với thông báo, dismiss với \"Xoá toàn bộ…\".",
+    ],
+  },
   "cooking-director": {
     skill: "flow-cooking-director-video", label: "Flow Cooking Director v2", minutes: 45, hint: "3 ảnh (chân dung người dẫn, món ăn, bao bì/góc bếp) + tên, giá, điểm nổi bật", toolUrl: null, uiMap: [],
     slots: [
@@ -133,7 +153,7 @@ export const FLOW_TOOLS = {
     slots: [{ role: "Nhân vật", label: "Ảnh chân dung", hint: "Chính diện, rõ mặt, 1 người", required: true }],
   },
 } as { [k: string]: { engine?: "flow" | "moneyprinter" | "liveportrait"; skill: string; label: string; /** Name the Tool itself shows, when the card label differs. */ toolTitle?: string; /** Replaces the "use Veo model X" line when the skill fixes the model ("" = no line). */ modelNote?: string; minutes: number; hint: string; toolUrl: string | null; uiMap: string[]; slots?: { role: string; label: string; hint: string; required?: boolean }[] } };
-export type FlowToolKey = "review-do-an-vat" | "review-thoi-trang" | "nguoi-que-so-sanh" | "nhan-hieu" | "cooking-director" | "cinematic" | "auto-video" | "portrait";
+export type FlowToolKey = "review-do-an-vat" | "review-thoi-trang" | "nguoi-que-so-sanh" | "nhan-hieu" | "koc-thoi-trang-nu" | "cooking-director" | "cinematic" | "auto-video" | "portrait";
 export const engineOf = (tool: string) => FLOW_TOOLS[tool]?.engine ?? "flow";
 
 export const CreativeInput = z.object({

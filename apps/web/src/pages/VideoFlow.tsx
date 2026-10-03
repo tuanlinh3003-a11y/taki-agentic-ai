@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Clapperboard, UserRound, Wand2, ExternalLink, Film, Globe, ImagePlus, Loader2, Mic, PersonStanding, Play, Shirt, Square, Trash2, UtensilsCrossed } from "lucide-react";
+import { Clapperboard, UserRound, Wand2, ExternalLink, Film, Globe, ImagePlus, Loader2, Mic, PersonStanding, Play, Shirt, Sparkles, Square, Trash2, UtensilsCrossed } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { timeAgo } from "../lib/format";
 import { Badge, Button, Card, Empty, Field, Loading, Modal, PageHeader, PlatformIcon, cx, inputCls, useToast } from "../components/ui";
 
-const TOOL_ICON: Record<string, any> = { "review-do-an-vat": UtensilsCrossed, "review-thoi-trang": Shirt, "nguoi-que-so-sanh": PersonStanding, "nhan-hieu": Mic, "cooking-director": Clapperboard, cinematic: Film, "auto-video": Wand2, portrait: UserRound };
+const TOOL_ICON: Record<string, any> = { "review-do-an-vat": UtensilsCrossed, "review-thoi-trang": Shirt, "nguoi-que-so-sanh": PersonStanding, "nhan-hieu": Mic, "koc-thoi-trang-nu": Sparkles, "cooking-director": Clapperboard, cinematic: Film, "auto-video": Wand2, portrait: UserRound };
 const STATUS: Record<string, [string, any]> = {
   queued: ["Chờ trình duyệt", "gray"], running: ["Đang sản xuất", "blue"], done: ["Xong, chờ duyệt", "green"],
   approved: ["Đã duyệt", "blue"], drafted: ["Đã lên nháp kênh", "green"],
@@ -211,7 +211,7 @@ export function VideoFlow() {
             </div>
             <ImageSlots slots={tool?.slots ?? []} images={form.images} onUpload={upload} onRemove={(path) => set({ images: form.images.filter((i: any) => i.path !== path) })}
               onRole={(path, role) => set({ images: form.images.map((i: any) => (i.path === path ? { ...i, role } : i)) })}
-              note={engine === "flow" && form.tool === "review-do-an-vat" ? "Ô nào để trống thì AI tự tạo ảnh trên Flow. Ảnh Sếp tải lên được dùng đúng ô, giữ nguyên khuôn mặt nhân vật chính ở mọi cảnh." : form.tool === "nhan-hieu" ? "Bắt buộc ảnh chân dung rõ mặt của chính người đứng tên nhân hiệu — AI giữ đúng gương mặt ở mọi cảnh. Giọng được khóa bằng một mẫu giọng (nam/nữ theo ô Giọng) để các cảnh nói cùng một giọng." : form.tool === "nguoi-que-so-sanh" ? "Ảnh người que quyết định nét vẽ của cả video (thiếu thì AI tự tạo người que trên Flow). Mỗi cảnh chỉ dùng 3 ảnh: người que + sản phẩm A + sản phẩm B." : form.tool === "review-thoi-trang" ? "Nên có ảnh thật của sản phẩm để AI giữ đúng màu, logo, đường may. Thiếu ảnh người mẫu thì AI tự tạo; Tool thử đồ AI rồi giữ nguyên mặt người mẫu ở mọi cảnh (mỗi cảnh 8 giây)." : engine === "flow" ? "Ảnh Sếp tải lên được dùng làm tham chiếu cho đúng vai trò; nhân vật chính giữ nguyên khuôn mặt ở mọi cảnh." : undefined}
+              note={engine === "flow" && form.tool === "review-do-an-vat" ? "Ô nào để trống thì AI tự tạo ảnh trên Flow. Ảnh Sếp tải lên được dùng đúng ô, giữ nguyên khuôn mặt nhân vật chính ở mọi cảnh." : form.tool === "koc-thoi-trang-nu" ? "Bắt buộc ảnh thật của sản phẩm (SP1) để giữ đúng màu, hoạ tiết. Thiếu ảnh KOC hoặc bối cảnh thì AI tự tạo; Tool dựng ảnh KOC mặc đồ trong bối cảnh rồi 5 góc selfie, 6 cảnh × 8 giây." : form.tool === "nhan-hieu" ? "Bắt buộc ảnh chân dung rõ mặt của chính người đứng tên nhân hiệu — AI giữ đúng gương mặt ở mọi cảnh. Giọng được khóa bằng một mẫu giọng (nam/nữ theo ô Giọng) để các cảnh nói cùng một giọng." : form.tool === "nguoi-que-so-sanh" ? "Ảnh người que quyết định nét vẽ của cả video (thiếu thì AI tự tạo người que trên Flow). Mỗi cảnh chỉ dùng 3 ảnh: người que + sản phẩm A + sản phẩm B." : form.tool === "review-thoi-trang" ? "Nên có ảnh thật của sản phẩm để AI giữ đúng màu, logo, đường may. Thiếu ảnh người mẫu thì AI tự tạo; Tool thử đồ AI rồi giữ nguyên mặt người mẫu ở mọi cảnh (mỗi cảnh 8 giây)." : engine === "flow" ? "Ảnh Sếp tải lên được dùng làm tham chiếu cho đúng vai trò; nhân vật chính giữ nguyên khuôn mặt ở mọi cảnh." : undefined}
               extras={engine === "flow"} />
             <div>
               <p className="mb-2 text-sm font-medium">Đăng nháp lên kênh (sau khi duyệt)</p>
