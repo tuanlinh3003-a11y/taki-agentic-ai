@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { chromium, type Browser } from "playwright-core";
@@ -31,10 +31,44 @@ async function withBrowser<T>(fn: (b: Browser) => Promise<T>): Promise<T> {
   try { return await fn(b); } finally { await b.close().catch(() => {}); } // close() only disconnects a CDP-attached browser
 }
 
+/**
+ * Chrome keeps running with zero windows when the CEO closes the Chrome Flow window (macOS), and Playwright then
+ * cannot attach ("Browser context management is not supported"). Open a blank window through the HTTP endpoint.
+ */
+async function ensureFlowWindow() {
+  try {
+    const targets = (await (await fetch(`${FLOW_CDP_URL}/json/list`, { signal: AbortSignal.timeout(1500) })).json()) as { type: string }[];
+    if (targets.some((t) => t.type === "page")) return;
+    await fetch(`${FLOW_CDP_URL}/json/new?about:blank`, { method: "PUT", signal: AbortSignal.timeout(5000) });
+    await new Promise((r) => setTimeout(r, 1000));
+  } catch { /* not up */ }
+}
+
+/** Pid of the Chrome Flow process (only a Chrome started on OUR data dir, never the CEO's own Chrome). */
+function flowChromePid(): number | null {
+  try {
+    const pid = Number(execFileSync("lsof", ["-tnP", `-iTCP:${FLOW_CDP_PORT}`, "-sTCP:LISTEN"], { encoding: "utf8" }).trim().split("\n")[0]);
+    if (!pid) return null;
+    const cmd = execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" });
+    return cmd.includes(`--user-data-dir=${FLOW_CHROME_DIR}`) ? pid : null;
+  } catch { return null; }
+}
+
 export async function closeFlowBrowser() {
   if (!(await flowBrowserUp())) return;
-  await withBrowser(async (b) => { const s = await b.newBrowserCDPSession(); await s.send("Browser.close").catch(() => {}); });
+  await ensureFlowWindow();
+  await withBrowser(async (b) => { const s = await b.newBrowserCDPSession(); await s.send("Browser.close").catch(() => {}); }).catch((e) => logger.warn("flow.chrome_close_cdp_failed", { error: String(e).slice(0, 200) }));
   for (let i = 0; i < 20 && (await flowBrowserUp()); i++) await new Promise((r) => setTimeout(r, 500));
+  if (await flowBrowserUp()) {
+    // CDP close failed: stop the process itself (verified to be Chrome Flow).
+    const pid = flowChromePid();
+    if (pid) {
+      try { process.kill(pid, "SIGTERM"); } catch { /* gone */ }
+      for (let i = 0; i < 20 && (await flowBrowserUp()); i++) await new Promise((r) => setTimeout(r, 500));
+      if (await flowBrowserUp()) try { process.kill(pid, "SIGKILL"); } catch { /* gone */ }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
 }
 
 /** Copy the chosen everyday profile (cookies = Google login) into the Chrome Flow folder. */
@@ -76,6 +110,7 @@ export async function ensureFlowBrowser(opts: { channel?: string | null; dir?: s
     for (let i = 0; i < 40 && !(up = await flowBrowserUp()); i++) await new Promise((r) => setTimeout(r, 500));
     if (!up) throw new AppError("BROWSER_START", "Chrome Flow không khởi động được");
   }
+  await ensureFlowWindow();
   await setWindowState(opts.show ? "normal" : "parked").catch(() => {});
 }
 
@@ -103,6 +138,7 @@ export async function setWindowState(state: "parked" | "normal") {
 /** Which Google accounts are signed in inside Chrome Flow (no page navigation). */
 export async function flowAccounts(): Promise<string[]> {
   if (!(await flowBrowserUp())) return [];
+  await ensureFlowWindow();
   return withBrowser(async (b) => {
     // Same call Google's account switcher makes (GET answers 400).
     const r = await b.contexts()[0].request.post("https://accounts.google.com/ListAccounts?json=standard&source=ogb", { timeout: 15_000 });

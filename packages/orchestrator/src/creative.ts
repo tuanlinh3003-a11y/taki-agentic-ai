@@ -206,6 +206,7 @@ function environmentInstructions(o: { toolLabel: string; toolUrl: string | null;
     "- Playwright nhìn thấy và thao tác được BÊN TRONG iframe của Tool. Cách làm chuẩn: browser_snapshot → lấy ref của nút/ô theo chữ → browser_click / browser_type / browser_select_option / browser_file_upload theo ref → snapshot lại để xác nhận. Chờ bằng browser_wait_for (text hoặc time ≤ 60s), không chờ mù.",
     "- Snapshot dài: chỉ đọc phần cần. Dùng browser_take_screenshot khi cần NHÌN ảnh/khung hình (chấm khung chủ, storyboard).",
     "- Dùng 1 tab duy nhất (browser_tabs: đóng tab thừa). Không tắt trình duyệt.",
+    "- Giao diện Flow (ngoài Tool) có thể là tiếng Anh hoặc tiếng Việt tuỳ tài khoản: nhận nút theo nghĩa (vd \"Select media\" = hộp chọn nội dung nghe nhìn, \"Upload media\" = Tải lên, \"Open\" = Mở, \"Done\" = Xong, Images = Hình ảnh).",
     o.toolUrl
       ? `- Mở THẲNG Tool "${o.toolLabel}": browser_navigate ${o.toolUrl} — tiêu đề trên cùng phải là "${o.toolLabel}". Công cụ đang ở bước cũ → bấm bước 1 trên thanh tiến trình để làm sản phẩm mới.`
       : `- Mở Tool "${o.toolLabel}" theo đúng skill (sidebar Tools / "Công cụ của tôi" / "Công cụ được chia sẻ với tôi").`,
